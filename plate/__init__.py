@@ -5,4 +5,4 @@ FFmpeg transforms media.
 Plate manages the artist's workflow.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
