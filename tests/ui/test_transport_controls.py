@@ -20,9 +20,9 @@ class TestTransportControls:
     def test_play_pause_button_toggle(self, qtbot: QtBot):
         tc = TransportControls()
         tc.set_playing(True)
-        assert tc._play_button.text() == "Pause"
+        assert "Pause" in tc._play_button.toolTip()
         tc.set_playing(False)
-        assert tc._play_button.text() == "Play"
+        assert "Play" in tc._play_button.toolTip()
 
     def test_buttons_emit_signals(self, qtbot: QtBot):
         tc = TransportControls()
@@ -41,3 +41,13 @@ class TestTransportControls:
         tc._set_out_button.click()
 
         assert results == ["play", "back", "forward", "in", "out"]
+
+    def test_loop_button_default_checked_and_signal(self, qtbot: QtBot):
+        tc = TransportControls()
+        assert tc._loop_button.isChecked() is True
+        results = []
+        tc.loopToggled.connect(results.append)
+        tc._loop_button.click()
+        assert results == [False]
+        tc._loop_button.click()
+        assert results == [False, True]

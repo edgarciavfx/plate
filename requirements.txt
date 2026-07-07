@@ -1,2 +1,10 @@
-PySide6>=6.6
+# Install plate itself first:
+#   pip install -e .
+#
+# Optional dependencies:
+#   pip install -e ".[gui]"    # PySide6 for the GUI
+#   pip install -e ".[ocio]"   # OpenColorIO for OCIO transforms
+#
+# See pyproject.toml for the canonical dependency list.
+
 tomli; python_version < "3.11"

@@ -5,6 +5,7 @@ source video using ffmpeg, for display on the Timeline ruler.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -93,7 +94,7 @@ def extract_thumbnails(
             seq_index = int(p.stem)
             frame = seq_index * interval
             dest = cache_dir / p.name
-            p.rename(dest)
+            shutil.move(p, dest)
             thumbnails.append((frame, str(dest)))
 
     _cleanup(tmp_dir)

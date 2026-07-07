@@ -13,7 +13,7 @@ _CONFIG_DIR = Path.home() / ".plate"
 _CONFIG_PATH = _CONFIG_DIR / "config.toml"
 
 EXPORT_DEFAULTS: dict[str, Any] = {
-    "output_root": "./output",
+    "output_root": None,
     "proxy_max_width": 1920,
     "exr_pixel_format": "gbrpf32le",
     "exr_compression": "zip1",

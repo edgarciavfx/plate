@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plateprep"
+version = "0.2.0"
+description = "A VFX plate-preparation workflow — inspect footage, set IN/OUT, export EXR sequences + proxies"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+  {name = "Edgar Garcia", email = "edgarciavfx@gmail.com"},
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: End Users/Desktop",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Multimedia :: Video",
+]
+
+dependencies = [
+  'tomli; python_version < "3.11"',
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6"]
+ocio = ["opencolorio"]
+
+[project.urls]
+Homepage = "https://github.com/edgarciavfx/plate"
+Source = "https://github.com/edgarciavfx/plate"
+Issues = "https://github.com/edgarciavfx/plate/issues"
+
+[project.scripts]
+plate = "plate.cli:main"
+plate-gui = "plate.app:main"
+
+[tool.setuptools]
+packages = ["plate", "plate.export", "plate.media", "plate.models", "plate.ui"]
+
+[tool.setuptools.package-data]
+"plate.ui" = ["*.qss"]

@@ -66,6 +66,30 @@ class TestShotQueue:
         q.remove(-1)
         assert len(q) == 1
 
+    def test_remove_indices(self, patch_queue_path: Path):
+        q = ShotQueue()
+        q.add(QueueEntry(source="a.mov", in_frame=1, out_frame=10))
+        q.add(QueueEntry(source="b.mov", in_frame=1, out_frame=10))
+        q.add(QueueEntry(source="c.mov", in_frame=1, out_frame=10))
+        q.remove_indices([0, 2])
+        assert len(q) == 1
+        assert q[0].source == "b.mov"
+
+    def test_remove_indices_out_of_order(self, patch_queue_path: Path):
+        q = ShotQueue()
+        q.add(QueueEntry(source="a.mov", in_frame=1, out_frame=10))
+        q.add(QueueEntry(source="b.mov", in_frame=1, out_frame=10))
+        q.add(QueueEntry(source="c.mov", in_frame=1, out_frame=10))
+        q.remove_indices([2, 0])
+        assert len(q) == 1
+        assert q[0].source == "b.mov"
+
+    def test_remove_indices_empty_does_nothing(self, patch_queue_path: Path):
+        q = ShotQueue()
+        q.add(QueueEntry(source="a.mov", in_frame=1, out_frame=10))
+        q.remove_indices([])
+        assert len(q) == 1
+
     def test_move_up(self, patch_queue_path: Path):
         q = ShotQueue()
         q.add(QueueEntry(source="a.mov", in_frame=1, out_frame=10))

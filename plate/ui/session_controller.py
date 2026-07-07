@@ -26,18 +26,29 @@ from ..pipeline import PipelineResult, PlatePipeline
 class _ExportWorker(QThread):
     """Runs PlatePipeline.run() off the UI thread."""
 
-    progress = Signal(str)
+    progress = Signal(str, int)   # message, percent
     finished_ok = Signal(object)   # PipelineResult
     failed = Signal(str)
 
     def __init__(self, pipeline: PlatePipeline, parent: QObject | None = None):
         super().__init__(parent)
         self._pipeline = pipeline
+        self._stop_requested = False
+
+    def request_stop(self) -> None:
+        self._stop_requested = True
 
     def run(self) -> None:
         try:
-            result = self._pipeline.run(progress=lambda msg, _pct=None: self.progress.emit(msg))
+            def _progress(msg: str, pct: int = 0) -> None:
+                if self._stop_requested:
+                    raise InterruptedError("Cancelled by user")
+                self.progress.emit(msg, pct)
+
+            result = self._pipeline.run(progress=_progress)
             self.finished_ok.emit(result)
+        except InterruptedError:
+            pass
         except (FileNotFoundError, FFprobeError, FFmpegError, ValueError) as exc:
             self.failed.emit(str(exc))
 
@@ -46,16 +57,22 @@ class _QueueWorker(QThread):
     """Processes all pending entries in a ShotQueue sequentially."""
 
     entryStarted = Signal(int)        # index
-    entryProgress = Signal(int, str)  # index, message
+    entryProgress = Signal(int, str, int)  # index, message, percent
     entryFinished = Signal(int, object, str)  # index, PipelineResult | None, error | None
     queueFinished = Signal()
 
     def __init__(self, queue: ShotQueue, parent: QObject | None = None):
         super().__init__(parent)
         self._queue = queue
+        self._stop_requested = False
+
+    def request_stop(self) -> None:
+        self._stop_requested = True
 
     def run(self) -> None:
         for idx, entry in enumerate(self._queue.entries):
+            if self._stop_requested:
+                break
             if not entry.is_pending():
                 continue
 
@@ -80,14 +97,21 @@ class _QueueWorker(QThread):
                     color_transform=color_transform,
                     burn_in=entry.burn_in,
                 )
-                result = pipeline.run(
-                    progress=lambda msg, _pct=None, _idx=idx: self.entryProgress.emit(_idx, msg)
-                )
+
+                def _progress(msg, pct=0, _idx=idx):
+                    if self._stop_requested:
+                        raise InterruptedError("Cancelled by user")
+                    self.entryProgress.emit(_idx, msg, pct)
+
+                result = pipeline.run(progress=_progress)
                 entry.status = "done"
                 entry.error = None
                 entry.manifest_path = str(result.manifest_path)
                 self.entryFinished.emit(idx, result, None)
 
+            except InterruptedError:
+                entry.status = "pending"
+                break
             except Exception as exc:
                 entry.status = "failed"
                 entry.error = str(exc)
@@ -132,13 +156,13 @@ class SessionController(QObject):
 
     metadataLoaded = Signal(object)   # VideoMetadata
     loadFailed = Signal(str)
-    exportProgress = Signal(str)
+    exportProgress = Signal(str, int)   # message, percent
     exportFinished = Signal(object)   # PipelineResult
     exportFailed = Signal(str)
     thumbnailsReady = Signal(object)  # list[tuple[int, str]]
 
     queueEntryStarted = Signal(int)
-    queueEntryProgress = Signal(int, str)
+    queueEntryProgress = Signal(int, str, int)  # index, message, percent
     queueEntryFinished = Signal(int, object, str)  # index, PipelineResult | None, error | None
     queueFinished = Signal()
 
@@ -238,6 +262,10 @@ class SessionController(QObject):
         self._worker.failed.connect(self.exportFailed)
         self._worker.start()
 
+    def cancel_export(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.request_stop()
+
     def _color_transform_from_options(self, options: dict) -> ColorTransform | None:
         mode = options.get("color_mode", "none")
         try:
@@ -295,8 +323,12 @@ class SessionController(QObject):
         self._queue_worker.queueFinished.connect(self._on_queue_finished)
         self._queue_worker.start()
 
-    def _on_queue_entry_progress(self, index: int, message: str) -> None:
-        self.queueEntryProgress.emit(index, message)
+    def cancel_queue(self) -> None:
+        if self._queue_worker is not None and self._queue_worker.isRunning():
+            self._queue_worker.request_stop()
+
+    def _on_queue_entry_progress(self, index: int, message: str, percent: int = 0) -> None:
+        self.queueEntryProgress.emit(index, message, percent)
 
     def _on_queue_entry_finished(self, index: int, result: object, error: str | None) -> None:
         self.queueEntryFinished.emit(index, result, error)

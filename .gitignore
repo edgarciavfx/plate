@@ -2,6 +2,10 @@
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+*.egg
+dist/
+build/
 
 # Generated test output
 output/
@@ -9,14 +13,13 @@ test_output/
 test_output_batch/
 test_output_batch_fail/
 
-# Media artifacts
-*.exr
-*.mp4
-*.mov
+# Test media (large .mov files, not part of source)
+Footage/
 
-# Pytest
+# Coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 
 # IDE
@@ -24,3 +27,7 @@ htmlcov/
 .idea/
 *.swp
 *.swo
+
+# OS
+.DS_Store
+Thumbs.db

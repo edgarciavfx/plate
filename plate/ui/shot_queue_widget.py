@@ -32,7 +32,7 @@ _STATUS_LABELS = {
 
 class ShotQueueWidget(QGroupBox):
     runRequested = Signal()
-    removeRequested = Signal(int)
+    removeRequested = Signal(list)
     clearCompletedRequested = Signal()
     entryDoubleClicked = Signal(int)
     openFolderRequested = Signal(int)
@@ -48,9 +48,10 @@ class ShotQueueWidget(QGroupBox):
             1, QHeaderView.ResizeMode.Stretch
         )
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().hide()
+        self._table.itemSelectionChanged.connect(self._update_button_state)
         self._table.cellDoubleClicked.connect(self._on_double_click)
 
         self._remove_btn = QPushButton("Remove")
@@ -97,7 +98,7 @@ class ShotQueueWidget(QGroupBox):
 
     def _update_button_state(self) -> None:
         has_pending = any(e.is_pending() for e in self._queue.entries)
-        has_selection = self._table.currentRow() >= 0
+        has_selection = len(self._table.selectedIndexes()) > 0
         has_completed = any(e.status in ("done", "failed") for e in self._queue.entries)
 
         self._run_btn.setEnabled(has_pending)
@@ -107,9 +108,9 @@ class ShotQueueWidget(QGroupBox):
     # -- slots --------------------------------------------------------------
 
     def _on_remove(self) -> None:
-        row = self._table.currentRow()
-        if row >= 0:
-            self.removeRequested.emit(row)
+        rows = sorted(set(idx.row() for idx in self._table.selectedIndexes()), reverse=True)
+        if rows:
+            self.removeRequested.emit(rows)
 
     def _on_double_click(self, row: int, _column: int) -> None:
         if 0 <= row < len(self._queue.entries):
@@ -122,5 +123,8 @@ class ShotQueueWidget(QGroupBox):
         self._refresh()
 
     def set_running(self, running: bool) -> None:
-        self._run_btn.setEnabled(not running and any(e.is_pending() for e in self._queue.entries))
+        has_pending = any(e.is_pending() for e in self._queue.entries)
+        self._run_btn.setEnabled(not running and has_pending)
         self._run_btn.setText("Exporting…" if running else "Run Queue")
+        self._remove_btn.setEnabled(not running)
+        self._clear_btn.setEnabled(not running)

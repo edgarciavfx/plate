@@ -237,30 +237,20 @@ def _run_batch_mode(args, parser) -> int:
         progress=lambda msg, _pct=None: logger.info("%s", msg),
     )
 
-    # Summary table
-    print()
-    print("[plate] ╔══════════════════════════════════════════════╗")
-    print("[plate] ║            Batch Summary                     ║")
-    print("[plate] ╠══════════════════════════════════════════════╣")
+    # Summary
     success_count = 0
     fail_count = 0
     for r in results:
         if r.error:
             fail_count += 1
-            label = "FAIL"
         else:
             success_count += 1
-            label = "ok  "
-        src = Path(r.entry.source).name
-        print(f"[plate] ║  [{label}] {src:<50s}║")
-    print("[plate] ╠══════════════════════════════════════════════╣")
-    print(f"[plate] ║  {success_count} succeeded, {fail_count} failed                   ║")
-    print("[plate] ╚══════════════════════════════════════════════╝")
-    print()
+
+    logger.info("Batch complete: %d succeeded, %d failed", success_count, fail_count)
 
     for r in results:
         if r.error:
-            logger.error("%s: %s", Path(r.entry.source).name, r.error)
+            logger.error("[FAIL] %s: %s", Path(r.entry.source).name, r.error)
 
     return 1 if fail_count > 0 else 0
 

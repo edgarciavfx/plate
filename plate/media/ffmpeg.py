@@ -121,7 +121,7 @@ def _build_proxy_filter_graph(
                 )
             elif kind == "timecode":
                 segments.append(
-                    "drawtext=text='%{{pts:hms}}':"
+                    "drawtext=text='%{pts:hms}':"
                     "fontsize=24:fontcolor=white:x=10:y=h-th-64"
                 )
 

@@ -72,6 +72,13 @@ class ShotQueue:
             del self.entries[index]
             self.save()
 
+    def remove_indices(self, indices: list[int]) -> None:
+        sorted_indices = sorted(set(indices), reverse=True)
+        for i in sorted_indices:
+            if 0 <= i < len(self.entries):
+                del self.entries[i]
+        self.save()
+
     def move_up(self, index: int) -> None:
         if index > 0:
             self.entries[index], self.entries[index - 1] = self.entries[index - 1], self.entries[index]

@@ -10,6 +10,16 @@ logic itself.
 from __future__ import annotations
 
 import sys
+from importlib.resources import files
+
+
+def _apply_style(app) -> None:
+    app.setStyle("Fusion")
+    try:
+        qss = (files("plate.ui") / "style.qss").read_text(encoding="utf-8")
+        app.setStyleSheet(qss)
+    except (FileNotFoundError, OSError):
+        pass
 
 
 def main() -> int:
@@ -26,6 +36,7 @@ def main() -> int:
     from .ui.main_window import MainWindow
 
     app = QApplication(sys.argv)
+    _apply_style(app)
     window = MainWindow()
     window.show()
     return app.exec()
