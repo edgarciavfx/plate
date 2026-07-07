@@ -22,14 +22,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..presets import all_presets, resolve_preset
+
 
 class ExportDialog(QDialog):
     def __init__(self, default_output_dir: str = "./output", mode: str = "export",
                  defaults: dict | None = None, parent: QWidget | None = None):
         super().__init__(parent)
         self._defaults = defaults or {}
+        self._base_defaults = dict(self._defaults)
+        self._suppress_preset = False
         title = "Add to Queue" if mode == "add_to_queue" else "Export Shot"
         self.setWindowTitle(title)
+
+        self._preset_combo = QComboBox()
+        self._preset_combo.addItem("Custom")
+        self._preset_names: list[str] = []
+        for name in all_presets():
+            self._preset_combo.addItem(name)
+            self._preset_names.append(name)
+        self._preset_combo.currentIndexChanged.connect(self._on_preset_changed)
 
         self._output_dir_edit = QLineEdit(
             self._defaults.get("output_root", default_output_dir)
@@ -68,6 +80,7 @@ class ExportDialog(QDialog):
 
         self._skip_exr_check = QCheckBox("Skip EXR sequence")
         self._skip_proxy_check = QCheckBox("Skip proxy")
+        self._nuke_script_check = QCheckBox("Generate Nuke script (.nk)")
 
         # -- color transform section --------------------------------------
         self._color_mode_combo = QComboBox()
@@ -118,6 +131,7 @@ class ExportDialog(QDialog):
 
         # -- form ----------------------------------------------------------
         form = QFormLayout()
+        form.addRow("Preset:", self._preset_combo)
         form.addRow("Output directory:", output_row_widget)
         form.addRow("Proxy max width:", self._proxy_width_spin)
         form.addRow("EXR pixel format:", self._pixfmt_combo)
@@ -131,6 +145,7 @@ class ExportDialog(QDialog):
         form.addRow(burn_group)
         form.addRow(self._skip_exr_check)
         form.addRow(self._skip_proxy_check)
+        form.addRow(self._nuke_script_check)
 
         self._mode = mode
         buttons = QDialogButtonBox(
@@ -146,6 +161,26 @@ class ExportDialog(QDialog):
         layout.addWidget(buttons)
 
         self._on_color_mode_changed(0)  # initialise visibility
+
+    def _on_preset_changed(self, index: int) -> None:
+        if self._suppress_preset:
+            return
+        if index == 0:
+            return
+        name = self._preset_names[index - 1]
+        values = resolve_preset(name)
+        if not values:
+            return
+        self._proxy_width_spin.setValue(values.get("proxy_max_width", 1920))
+        pixfmt = values.get("exr_pixel_format", "gbrpf32le")
+        idx = self._pixfmt_combo.findText(pixfmt)
+        if idx >= 0:
+            self._pixfmt_combo.setCurrentIndex(idx)
+        codec = values.get("exr_compression", "zip1")
+        idx = self._exr_codec_combo.findText(codec)
+        if idx >= 0:
+            self._exr_codec_combo.setCurrentIndex(idx)
+        self._frame_padding_spin.setValue(values.get("frame_padding", 6))
 
     def _on_color_mode_changed(self, index: int) -> None:
         is_lut = index == 1
@@ -198,6 +233,7 @@ class ExportDialog(QDialog):
             "frame_padding": self._frame_padding_spin.value(),
             "skip_exr": self._skip_exr_check.isChecked(),
             "skip_proxy": self._skip_proxy_check.isChecked(),
+            "export_nuke_script": self._nuke_script_check.isChecked(),
             "color_mode": color_mode,
             "lut_path": self._lut_edit.text() or None,
             "ocio_config": self._ocio_config_edit.text() or None,

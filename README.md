@@ -282,11 +282,11 @@ the GUI, or a future batch/automation script.
 - [x] Configuration file (`~/.plate/config.toml` for defaults)
 - [x] "Open containing folder" action after export
 
-### Phase 3 — Road Ahead
-- [ ] Thumbnail timeline (keyframe thumbnails on the ruler)
+### Phase 3 — Road Ahead (P0–P2 done)
+- [x] Nuke script export (generate Nuke script pointing at EXR sequence)
+- [x] Export presets ("ACES 2K", "Rec709 HD", "Archival 4K") with user-defined presets
+- [x] Thumbnail timeline (keyframe thumbnails on the ruler)
 - [ ] EDL/CSV import of frame ranges
-- [ ] Export presets ("ACES 2K", "Rec709 HD", "Archival 4K")
-- [ ] Nuke script export (generate Nuke script pointing at EXR sequence)
 - [ ] Watch folder / hot folder auto-processing
 - [ ] Plug-in system for third-party export jobs
 - [ ] Stereo 3D support (left/right eye handling)

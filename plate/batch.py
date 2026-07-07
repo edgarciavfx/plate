@@ -34,6 +34,7 @@ class BatchEntry:
     frame_padding: Optional[int] = None
     skip_exr: Optional[bool] = None
     skip_proxy: Optional[bool] = None
+    export_nuke_script: Optional[bool] = None
     lut_path: Optional[str | Path] = None
     ocio_config: Optional[str | Path] = None
     ocio_src: Optional[str] = None
@@ -90,6 +91,7 @@ def load_batch_file(path: str | Path) -> list[BatchEntry]:
             frame_padding=item.get("frame_padding"),
             skip_exr=item.get("skip_exr"),
             skip_proxy=item.get("skip_proxy"),
+            export_nuke_script=item.get("nuke_script"),
             lut_path=item.get("lut"),
             ocio_config=item.get("ocio_config"),
             ocio_src=item.get("ocio_src"),
@@ -161,6 +163,7 @@ def run_batch(
                 frame_padding=entry.frame_padding if entry.frame_padding is not None else defaults.get("frame_padding", 6),
                 skip_exr=entry.skip_exr if entry.skip_exr is not None else defaults.get("skip_exr", False),
                 skip_proxy=entry.skip_proxy if entry.skip_proxy is not None else defaults.get("skip_proxy", False),
+                export_nuke_script=entry.export_nuke_script if entry.export_nuke_script is not None else defaults.get("export_nuke_script", False),
                 color_transform=color_transform,
                 burn_in=entry.burn_in,
             )

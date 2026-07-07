@@ -23,6 +23,7 @@ class QueueEntry:
     frame_padding: int = 6
     skip_exr: bool = False
     skip_proxy: bool = False
+    export_nuke_script: bool = False
     color_mode: str = "none"
     lut_path: Optional[str] = None
     ocio_config: Optional[str] = None

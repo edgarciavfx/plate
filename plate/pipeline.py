@@ -17,6 +17,7 @@ from typing import Optional
 from .color import ColorTransform
 from .export.export_job import ExportJob
 from .export.manifest_writer import ManifestWriter
+from .export.nuke_export import NukeWriter
 from .export.proxy_job import ProxyJob
 from .media.ffprobe import probe
 from .models.frame_range import FrameRange
@@ -47,6 +48,7 @@ class PlatePipeline:
         frame_padding: int = 6,
         skip_exr: bool = False,
         skip_proxy: bool = False,
+        export_nuke_script: bool = False,
         color_transform: Optional[ColorTransform] = None,
         burn_in: Optional[list[str]] = None,
     ):
@@ -61,6 +63,7 @@ class PlatePipeline:
         self.frame_padding = frame_padding
         self.skip_exr = skip_exr
         self.skip_proxy = skip_proxy
+        self.export_nuke_script = export_nuke_script
         self.color_transform = color_transform
         self.burn_in = burn_in
 
@@ -119,6 +122,10 @@ class PlatePipeline:
 
         progress("Writing manifest...", 90)
         manifest_path = ManifestWriter(session).write()
+
+        if self.export_nuke_script:
+            progress("Writing Nuke script...", 95)
+            NukeWriter(session, frame_padding=self.frame_padding).write()
 
         progress(f"Done. Shot written to {shot_output_dir}", 100)
         return PipelineResult(session=session, manifest_path=manifest_path)

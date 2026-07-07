@@ -24,6 +24,7 @@ from . import __version__ as plate_version
 from .batch import load_batch_file, run_batch
 from .color import ColorTransform
 from .config import load as load_config, merge as merge_config
+from .presets import resolve_preset
 from .media.ffprobe import FFprobeError
 from .media.ffmpeg import FFmpegError
 from .pipeline import PlatePipeline
@@ -90,6 +91,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip proxy generation.",
     )
     parser.add_argument(
+        "--nuke-script", action="store_true",
+        help="Generate a Nuke .nk script pointing at the EXR sequence.",
+    )
+    parser.add_argument(
+        "--preset", default=None, metavar="NAME",
+        help="Export preset name (e.g. 'ACES 2K', 'Rec709 HD', 'Archival 4K'). "
+             "Overrides individual defaults.",
+    )
+    parser.add_argument(
         "--burn-in", dest="burn_in", action="append", default=None,
         choices=["frame_number", "timecode", "source_name"],
         help="Overlay information on the proxy. Can be specified "
@@ -154,6 +164,11 @@ def _run_single(args, parser) -> int:
     if color_transform is None:
         return 1
 
+    preset_values = resolve_preset(args.preset)
+    for key in ["proxy_max_width", "exr_pixel_format", "exr_compression", "frame_padding"]:
+        if key in preset_values and getattr(args, key, None) == parser.get_default(key):
+            setattr(args, key, preset_values[key])
+
     pipeline = PlatePipeline(
         source=args.source,
         in_frame=args.in_frame,
@@ -166,6 +181,7 @@ def _run_single(args, parser) -> int:
         frame_padding=getattr(args, "frame_padding", 6),
         skip_exr=args.skip_exr,
         skip_proxy=args.skip_proxy,
+        export_nuke_script=args.nuke_script,
         color_transform=color_transform,
         burn_in=args.burn_in,
     )
@@ -202,15 +218,17 @@ def _run_batch_mode(args, parser) -> int:
         logger.error("batch file contains no entries.")
         return 1
 
+    preset_values = resolve_preset(args.preset)
     defaults = {
         "output_root": args.output_root,
         "start_frame": args.start_frame,
-        "proxy_max_width": args.proxy_max_width,
-        "exr_pixel_format": args.exr_pixel_format,
-        "exr_compression": getattr(args, "exr_compression", "zip1"),
-        "frame_padding": getattr(args, "frame_padding", 6),
+        "proxy_max_width": preset_values.get("proxy_max_width", args.proxy_max_width),
+        "exr_pixel_format": preset_values.get("exr_pixel_format", args.exr_pixel_format),
+        "exr_compression": preset_values.get("exr_compression", getattr(args, "exr_compression", "zip1")),
+        "frame_padding": preset_values.get("frame_padding", getattr(args, "frame_padding", 6)),
         "skip_exr": args.skip_exr,
         "skip_proxy": args.skip_proxy,
+        "export_nuke_script": args.nuke_script,
     }
 
     results = run_batch(

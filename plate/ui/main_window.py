@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
 
         controller.metadataLoaded.connect(self._on_metadata_loaded)
         controller.loadFailed.connect(self._on_load_failed)
+        controller.thumbnailsReady.connect(self._timeline.set_thumbnails)
         controller.exportProgress.connect(self.statusBar().showMessage)
         controller.exportFinished.connect(self._on_export_finished)
         controller.exportFailed.connect(self._on_export_failed)

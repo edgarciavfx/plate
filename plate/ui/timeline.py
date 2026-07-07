@@ -10,11 +10,12 @@ out of it.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal, QRect
-from PySide6.QtGui import QPainter, QColor, QMouseEvent, QPaintEvent
+from PySide6.QtGui import QPainter, QColor, QPixmap, QMouseEvent, QPaintEvent
 from PySide6.QtWidgets import QWidget
 
 _HANDLE_WIDTH = 8
 _RULER_HEIGHT = 36
+_THUMB_HEIGHT = 28
 
 
 class Timeline(QWidget):
@@ -41,6 +42,7 @@ class Timeline(QWidget):
 
         self._dragging: str | None = None  # "in", "out", "playhead", or None
         self._undo_stack: list[tuple[int | None, int | None]] = []
+        self._thumbnails: list[tuple[int, QPixmap]] = []
 
     # -- configuration ------------------------------------------------------
 
@@ -103,6 +105,15 @@ class Timeline(QWidget):
         if changed:
             self.update()
 
+    def set_thumbnails(self, data: list[tuple[int, str]]) -> None:
+        self._thumbnails = []
+        for frame, path in data:
+            pix = QPixmap(path)
+            if not pix.isNull():
+                scaled = pix.scaledToHeight(_THUMB_HEIGHT, Qt.TransformationMode.SmoothTransformation)
+                self._thumbnails.append((frame, scaled))
+        self.update()
+
     # -- helpers --------------------------------------------------------
 
     def _clamp(self, frame: int) -> int:
@@ -135,13 +146,21 @@ class Timeline(QWidget):
             painter.end()
             return
 
+        # Thumbnail strip
+        thumb_y = _RULER_HEIGHT - _THUMB_HEIGHT
+        painter.setOpacity(0.7)
+        for frame, pix in self._thumbnails:
+            x = self._frame_to_x(frame) - pix.width() // 2
+            painter.drawPixmap(x, thumb_y, pix)
+        painter.setOpacity(1.0)
+
         # Selected IN/OUT range highlight
         if self._in_frame is not None and self._out_frame is not None:
             x_in = self._frame_to_x(self._in_frame)
             x_out = self._frame_to_x(self._out_frame)
             painter.fillRect(
                 QRect(x_in, 0, max(x_out - x_in, 1), _RULER_HEIGHT),
-                QColor("#2d6a4f"),
+                QColor(45, 106, 79, 80),
             )
 
         # Tick marks every ~10% of the ruler

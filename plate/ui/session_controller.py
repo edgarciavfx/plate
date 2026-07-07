@@ -17,6 +17,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 from ..color import ColorTransform
 from ..media.ffmpeg import FFmpegError
 from ..media.ffprobe import FFprobeError, probe
+from ..media.thumbnails import extract_thumbnails
 from ..models.shot_queue import QueueEntry, ShotQueue
 from ..models.video_metadata import VideoMetadata
 from ..pipeline import PipelineResult, PlatePipeline
@@ -75,6 +76,7 @@ class _QueueWorker(QThread):
                     frame_padding=entry.frame_padding,
                     skip_exr=entry.skip_exr,
                     skip_proxy=entry.skip_proxy,
+                    export_nuke_script=entry.export_nuke_script,
                     color_transform=color_transform,
                     burn_in=entry.burn_in,
                 )
@@ -107,6 +109,21 @@ class _QueueWorker(QThread):
         return ColorTransform()
 
 
+class _ThumbnailWorker(QThread):
+    """Extracts evenly-spaced thumbnails off the UI thread."""
+
+    finished = Signal(object)  # list[tuple[int, str]]
+
+    def __init__(self, source: str, total_frames: int, parent: QObject | None = None):
+        super().__init__(parent)
+        self._source = source
+        self._total_frames = total_frames
+
+    def run(self) -> None:
+        result = extract_thumbnails(self._source, self._total_frames, thumb_count=20)
+        self.finished.emit(result)
+
+
 class SessionController(QObject):
     """Owns the current source file, its probed metadata, and the pending
     IN/OUT selection. Converts between frame numbers and milliseconds so
@@ -118,6 +135,7 @@ class SessionController(QObject):
     exportProgress = Signal(str)
     exportFinished = Signal(object)   # PipelineResult
     exportFailed = Signal(str)
+    thumbnailsReady = Signal(object)  # list[tuple[int, str]]
 
     queueEntryStarted = Signal(int)
     queueEntryProgress = Signal(int, str)
@@ -132,6 +150,7 @@ class SessionController(QObject):
         self._worker: Optional[_ExportWorker] = None
         self._queue_worker: Optional[_QueueWorker] = None
         self._queue: Optional[ShotQueue] = None
+        self._thumbnail_worker: Optional[_ThumbnailWorker] = None
 
     # -- loading ------------------------------------------------------------
 
@@ -153,6 +172,12 @@ class SessionController(QObject):
         self.metadata = metadata
         self.start_frame = start_frame
         self.metadataLoaded.emit(metadata)
+
+        total_frames = metadata.total_frames or 0
+        if total_frames > 0:
+            self._thumbnail_worker = _ThumbnailWorker(path, total_frames, self)
+            self._thumbnail_worker.finished.connect(self.thumbnailsReady)
+            self._thumbnail_worker.start()
 
     # -- frame/time conversion ------------------------------------------
 
@@ -202,6 +227,7 @@ class SessionController(QObject):
             frame_padding=options.get("frame_padding", 6),
             skip_exr=options.get("skip_exr", False),
             skip_proxy=options.get("skip_proxy", False),
+            export_nuke_script=options.get("export_nuke_script", False),
             color_transform=color_transform,
             burn_in=options.get("burn_in"),
         )
@@ -245,6 +271,7 @@ class SessionController(QObject):
             frame_padding=options.get("frame_padding", 6),
             skip_exr=options.get("skip_exr", False),
             skip_proxy=options.get("skip_proxy", False),
+            export_nuke_script=options.get("export_nuke_script", False),
             color_mode=options.get("color_mode", "none"),
             lut_path=options.get("lut_path"),
             ocio_config=options.get("ocio_config"),
