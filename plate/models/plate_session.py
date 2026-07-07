@@ -4,7 +4,7 @@ one destination folder, and the resulting artifacts once processed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +23,7 @@ class PlateSession:
     proxy_path: Optional[Path] = None
     manifest_path: Optional[Path] = None
     exported_frames: int = 0
+    color_transform: Optional[object] = None  # ColorTransform, avoided circular import
 
     def __post_init__(self) -> None:
         self.source_path = Path(self.source_path)

@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from ..media.ffmpeg import export_exr_sequence
 from ..models.plate_session import PlateSession
+
+if TYPE_CHECKING:
+    from ..color import ColorTransform
 
 
 class ExportJob:
@@ -11,9 +16,19 @@ class ExportJob:
     or reported on independently of the rest of the pipeline.
     """
 
-    def __init__(self, session: PlateSession, pixel_format: str = "gbrpf32le"):
+    def __init__(
+        self,
+        session: PlateSession,
+        pixel_format: str = "gbrpf32le",
+        compression: str = "zip1",
+        frame_padding: int = 6,
+        color_transform: "ColorTransform | None" = None,
+    ):
         self.session = session
         self.pixel_format = pixel_format
+        self.compression = compression
+        self.frame_padding = frame_padding
+        self.color_transform = color_transform
 
     def run(self) -> int:
         session = self.session
@@ -29,6 +44,9 @@ class ExportJob:
             exr_dir=session.exr_dir,
             shot_name=session.shot_name,
             pixel_format=self.pixel_format,
+            compression=self.compression,
+            frame_padding=self.frame_padding,
+            color_transform=self.color_transform,
         )
         session.exported_frames = frame_count
         return frame_count

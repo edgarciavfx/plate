@@ -40,6 +40,7 @@ class Timeline(QWidget):
         self._out_frame: int | None = None
 
         self._dragging: str | None = None  # "in", "out", "playhead", or None
+        self._undo_stack: list[tuple[int | None, int | None]] = []
 
     # -- configuration ------------------------------------------------------
 
@@ -50,6 +51,7 @@ class Timeline(QWidget):
         self._in_frame = start_frame
         self._out_frame = start_frame + self._total_frames - 1
         self._current_frame = start_frame
+        self._undo_stack.clear()
         self.update()
 
     def set_current_frame(self, frame: int) -> None:
@@ -62,7 +64,13 @@ class Timeline(QWidget):
     def out_frame(self) -> int | None:
         return self._out_frame
 
+    def _push_undo(self) -> None:
+        self._undo_stack.append((self._in_frame, self._out_frame))
+        if len(self._undo_stack) > 50:
+            self._undo_stack.pop(0)
+
     def set_in_frame(self, frame: int) -> None:
+        self._push_undo()
         self._in_frame = self._clamp(frame)
         if self._out_frame is not None and self._in_frame > self._out_frame:
             self._out_frame = self._in_frame
@@ -71,12 +79,29 @@ class Timeline(QWidget):
         self.update()
 
     def set_out_frame(self, frame: int) -> None:
+        self._push_undo()
         self._out_frame = self._clamp(frame)
         if self._in_frame is not None and self._out_frame < self._in_frame:
             self._in_frame = self._out_frame
             self.inFrameChanged.emit(self._in_frame)
         self.outFrameChanged.emit(self._out_frame)
         self.update()
+
+    def undo(self) -> None:
+        if not self._undo_stack:
+            return
+        prev_in, prev_out = self._undo_stack.pop()
+        changed = False
+        if prev_in != self._in_frame:
+            self._in_frame = prev_in
+            self.inFrameChanged.emit(self._in_frame)
+            changed = True
+        if prev_out != self._out_frame:
+            self._out_frame = prev_out
+            self.outFrameChanged.emit(self._out_frame)
+            changed = True
+        if changed:
+            self.update()
 
     # -- helpers --------------------------------------------------------
 

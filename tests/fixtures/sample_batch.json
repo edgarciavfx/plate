@@ -1,0 +1,16 @@
+[
+  {
+    "source": "clip_a.mov",
+    "in": 1001,
+    "out": 1100,
+    "start_frame": 1001
+  },
+  {
+    "source": "clip_b.mov",
+    "in": 1204,
+    "out": 1389,
+    "start_frame": 1001,
+    "proxy_width": 1280,
+    "skip_proxy": true
+  }
+]

@@ -7,11 +7,17 @@ and a scrub-friendly proxy) and shells out.
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..models.frame_range import FrameRange
+
+if TYPE_CHECKING:
+    from ..color import ColorTransform
 
 
 class FFmpegError(RuntimeError):
@@ -36,6 +42,17 @@ def _run(cmd: list[str]) -> None:
         ) from exc
 
 
+@contextlib.contextmanager
+def _lut_context(color_transform: "ColorTransform | None"):
+    """Context manager that yields the resolved .cube path, or None."""
+    if color_transform is None or not color_transform.is_active():
+        yield None
+        return
+    from ..color import bake_to_cube
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        yield bake_to_cube(color_transform, tmp_dir)
+
+
 def export_exr_sequence(
     source_path: str | Path,
     frame_range: FrameRange,
@@ -43,10 +60,13 @@ def export_exr_sequence(
     exr_dir: str | Path,
     shot_name: str,
     pixel_format: str = "gbrpf32le",
+    compression: str = "zip1",
+    frame_padding: int = 6,
+    color_transform: "ColorTransform | None" = None,
 ) -> int:
     """Export an EXR sequence covering frame_range.in_frame..out_frame.
 
-    Files are named '{shot_name}.{frame:06d}.exr' with numbering matching
+    Files are named '{shot_name}.%0{padding}d.exr' with numbering matching
     the source's original frame numbers (via -start_number).
 
     Returns:
@@ -58,19 +78,54 @@ def export_exr_sequence(
 
     seek = frame_range.seek_offset_seconds(fps)
     duration = frame_range.duration_seconds(fps)
-    pattern = exr_dir / f"{shot_name}.%06d.exr"
+    pattern = exr_dir / f"{shot_name}.%0{frame_padding}d.exr"
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(source_path),
-        "-ss", f"{seek:.6f}",
-        "-t", f"{duration:.6f}",
-        "-pix_fmt", pixel_format,
-        "-start_number", str(frame_range.in_frame),
-        str(pattern),
-    ]
-    _run(cmd)
+    with _lut_context(color_transform) as cube_path:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(source_path),
+            "-ss", f"{seek:.6f}",
+            "-t", f"{duration:.6f}",
+        ]
+        if cube_path is not None:
+            cmd += ["-vf", f"lut3d={cube_path}"]
+        cmd += [
+            "-compression", compression,
+            "-pix_fmt", pixel_format,
+            "-start_number", str(frame_range.in_frame),
+            str(pattern),
+        ]
+        _run(cmd)
+
     return frame_range.frame_count
+
+
+def _build_proxy_filter_graph(
+    max_width: int,
+    source_name: str,
+    burn_in: list[str] | None = None,
+) -> str:
+    segments = [f"scale='min({max_width},iw)':-2"]
+
+    if burn_in:
+        for kind in burn_in:
+            if kind == "frame_number":
+                segments.append(
+                    "drawtext=text='Frame %{frame_num}':"
+                    "fontsize=24:fontcolor=white:x=10:y=10"
+                )
+            elif kind == "source_name":
+                segments.append(
+                    f"drawtext=text='{source_name}':"
+                    "fontsize=24:fontcolor=white:x=10:y=h-th-32"
+                )
+            elif kind == "timecode":
+                segments.append(
+                    "drawtext=text='%{{pts:hms}}':"
+                    "fontsize=24:fontcolor=white:x=10:y=h-th-64"
+                )
+
+    return ",".join(segments)
 
 
 def export_proxy(
@@ -81,10 +136,18 @@ def export_proxy(
     max_width: int = 1920,
     video_codec: str = "libx264",
     crf: int = 18,
+    color_transform: "ColorTransform | None" = None,
+    burn_in: list[str] | None = None,
 ) -> Path:
     """Export a lightweight, scrub-friendly H.264 proxy covering the same
     IN/OUT selection as the EXR sequence, scaled down if wider than
     max_width (never scaled up).
+
+    If ``color_transform`` is active, the LUT/OCIO transform is baked into
+    the proxy via ffmpeg's lut3d filter, chained after scaling and burn-in.
+
+    If ``burn_in`` is provided, drawtext filters are inserted for each
+    requested overlay (frame_number, timecode, source_name).
     """
     _check_binary()
     proxy_path = Path(proxy_path)
@@ -92,20 +155,27 @@ def export_proxy(
 
     seek = frame_range.seek_offset_seconds(fps)
     duration = frame_range.duration_seconds(fps)
-    scale_filter = f"scale='min({max_width},iw)':-2"
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-ss", f"{seek:.6f}",
-        "-i", str(source_path),
-        "-t", f"{duration:.6f}",
-        "-vf", scale_filter,
-        "-c:v", video_codec,
-        "-crf", str(crf),
-        "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        "-an",
-        str(proxy_path),
-    ]
-    _run(cmd)
+    base_vf = _build_proxy_filter_graph(max_width, Path(source_path).name, burn_in)
+
+    with _lut_context(color_transform) as cube_path:
+        if cube_path is not None:
+            vf = f"{base_vf},lut3d={cube_path}"
+        else:
+            vf = base_vf
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{seek:.6f}",
+            "-i", str(source_path),
+            "-t", f"{duration:.6f}",
+            "-vf", vf,
+            "-c:v", video_codec,
+            "-crf", str(crf),
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-an",
+            str(proxy_path),
+        ]
+        _run(cmd)
     return proxy_path

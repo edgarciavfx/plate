@@ -39,6 +39,9 @@ class ManifestWriter:
         if metadata is not None:
             manifest.update(metadata.to_dict())
 
+        ct = session.color_transform
+        manifest["color_transform"] = ct.to_dict() if ct is not None else {"mode": None}
+
         return manifest
 
     def write(self) -> Path:
