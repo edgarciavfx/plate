@@ -16,6 +16,8 @@ test_output_batch_fail/
 
 # Pytest
 .pytest_cache/
+.coverage
+htmlcov/
 
 # IDE
 .vscode/
