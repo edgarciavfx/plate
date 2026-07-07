@@ -35,7 +35,6 @@ class VideoMetadata:
     def to_dict(self) -> dict[str, Any]:
         """Serializable view used by ManifestWriter (excludes raw ffprobe dump)."""
         return {
-            "path": self.path,
             "duration_seconds": self.duration_seconds,
             "fps": round(self.fps, 3),
             "width": self.width,

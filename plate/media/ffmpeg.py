@@ -62,8 +62,8 @@ def export_exr_sequence(
 
     cmd = [
         "ffmpeg", "-y",
-        "-ss", f"{seek:.6f}",
         "-i", str(source_path),
+        "-ss", f"{seek:.6f}",
         "-t", f"{duration:.6f}",
         "-pix_fmt", pixel_format,
         "-start_number", str(frame_range.in_frame),
@@ -103,6 +103,7 @@ def export_proxy(
         "-c:v", video_codec,
         "-crf", str(crf),
         "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
         "-an",
         str(proxy_path),
     ]

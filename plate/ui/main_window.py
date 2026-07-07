@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
         controller.exportFailed.connect(self._on_export_failed)
 
         self._viewer.positionChanged.connect(self._on_position_changed)
+        self._viewer.durationChanged.connect(self._scrubber.set_duration)
 
         self._scrubber.seekRequested.connect(self._viewer.seek_ms)
         self._timeline.seekRequested.connect(self._on_timeline_seek)

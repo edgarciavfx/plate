@@ -66,6 +66,7 @@ class Timeline(QWidget):
         self._in_frame = self._clamp(frame)
         if self._out_frame is not None and self._in_frame > self._out_frame:
             self._out_frame = self._in_frame
+            self.outFrameChanged.emit(self._out_frame)
         self.inFrameChanged.emit(self._in_frame)
         self.update()
 
@@ -73,6 +74,7 @@ class Timeline(QWidget):
         self._out_frame = self._clamp(frame)
         if self._in_frame is not None and self._out_frame < self._in_frame:
             self._in_frame = self._out_frame
+            self.inFrameChanged.emit(self._in_frame)
         self.outFrameChanged.emit(self._out_frame)
         self.update()
 
@@ -146,6 +148,8 @@ class Timeline(QWidget):
     # -- mouse interaction ------------------------------------------------
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
         x = int(event.position().x())
         if self._near_handle(x, self._in_frame):
             self._dragging = "in"
