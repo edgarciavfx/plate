@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plateprep"
-version = "0.2.0"
+version = "0.2.1"
 description = "A VFX plate-preparation workflow — inspect footage, set IN/OUT, export EXR sequences + proxies"
 readme = "README.md"
 license = "MIT"
@@ -41,7 +41,7 @@ plate = "plate.cli:main"
 plate-gui = "plate.app:main"
 
 [tool.setuptools]
-packages = ["plate", "plate.export", "plate.media", "plate.models", "plate.ui"]
+packages = ["plate", "plate.export", "plate.media", "plate.models", "plate.ui", "plateprep"]
 
 [tool.setuptools.package-data]
 "plate.ui" = ["*.qss"]
