@@ -127,3 +127,13 @@ def ocio_color_transform() -> ColorTransform:
         src_colorspace="log",
         dst_colorspace="linear",
     )
+
+
+@pytest.fixture
+def ocio_display_transform() -> ColorTransform:
+    return ColorTransform(
+        ocio_config=Path("/some/config.ocio"),
+        src_colorspace="log",
+        display="sRGB - Display",
+        view="ACES 1.0 - SDR Video",
+    )

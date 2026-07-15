@@ -63,23 +63,92 @@ class TestFromOptions:
             )
 
     def test_ocio_src_without_config_raises(self):
-        with pytest.raises(ValueError, match="ocio_src and ocio_dst require ocio_config"):
+        with pytest.raises(ValueError, match="require ocio_config"):
             ColorTransform.from_options(ocio_src="log")
 
     def test_ocio_dst_without_config_raises(self):
-        with pytest.raises(ValueError, match="ocio_src and ocio_dst require ocio_config"):
+        with pytest.raises(ValueError, match="require ocio_config"):
             ColorTransform.from_options(ocio_dst="linear")
 
     def test_ocio_config_without_src_and_dst_raises(self):
-        with pytest.raises(ValueError, match="requires both ocio_src and ocio_dst"):
+        with pytest.raises(ValueError, match="requires ocio_src"):
             ColorTransform.from_options(ocio_config="/some/config.ocio")
 
     def test_ocio_config_with_src_only_raises(self):
-        with pytest.raises(ValueError, match="requires both ocio_src and ocio_dst"):
+        with pytest.raises(ValueError, match="requires ocio_src"):
             ColorTransform.from_options(
                 ocio_config="/some/config.ocio",
                 ocio_src="log",
             )
+
+    def test_display_view(self):
+        ct = ColorTransform.from_options(
+            ocio_config="/some/config.ocio",
+            ocio_src="log",
+            ocio_display="sRGB - Display",
+            ocio_view="ACES 1.0 - SDR Video",
+        )
+        assert ct.is_active() is True
+        assert ct.is_display_view() is True
+        assert ct.display == "sRGB - Display"
+        assert ct.view == "ACES 1.0 - SDR Video"
+        assert ct.dst_colorspace is None
+
+    def test_display_without_view_raises(self):
+        with pytest.raises(ValueError, match="must be set together"):
+            ColorTransform.from_options(
+                ocio_config="/some/config.ocio",
+                ocio_src="log",
+                ocio_display="sRGB - Display",
+            )
+
+    def test_view_without_display_raises(self):
+        with pytest.raises(ValueError, match="must be set together"):
+            ColorTransform.from_options(
+                ocio_config="/some/config.ocio",
+                ocio_src="log",
+                ocio_view="Standard",
+            )
+
+    def test_display_and_dst_mutually_exclusive(self):
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            ColorTransform.from_options(
+                ocio_config="/some/config.ocio",
+                ocio_src="log",
+                ocio_dst="linear",
+                ocio_display="sRGB - Display",
+                ocio_view="Standard",
+            )
+
+    def test_display_without_config_raises(self):
+        with pytest.raises(ValueError, match="require ocio_config"):
+            ColorTransform.from_options(
+                ocio_display="sRGB - Display",
+                ocio_view="Standard",
+            )
+
+    def test_display_without_src_raises(self):
+        with pytest.raises(ValueError, match="requires ocio_src"):
+            ColorTransform.from_options(
+                ocio_config="/some/config.ocio",
+                ocio_display="sRGB - Display",
+                ocio_view="Standard",
+            )
+
+    def test_to_dict_display_mode(self):
+        ct = ColorTransform.from_options(
+            ocio_config="/some/config.ocio",
+            ocio_src="log",
+            ocio_display="sRGB - Display",
+            ocio_view="Standard",
+        )
+        d = ct.to_dict()
+        assert d["mode"] == "ocio_display"
+        assert d["ocio_config"] == "/some/config.ocio"
+        assert d["src_colorspace"] == "log"
+        assert d["display"] == "sRGB - Display"
+        assert d["view"] == "Standard"
+        assert "dst_colorspace" not in d
 
 
 class TestBakeToCube:
@@ -107,6 +176,72 @@ class TestBakeToCube:
     def test_inactive_transform_raises_value_error(self, empty_color_transform: ColorTransform):
         with pytest.raises(ValueError, match="no lut_path or ocio_config"):
             bake_to_cube(empty_color_transform, "/tmp")
+
+    def _fake_ocio(self, mocker, baker=None):
+        """Build a fake PyOpenColorIO module and register it in sys.modules."""
+        import sys
+        fake = mocker.MagicMock()
+        if baker is not None:
+            fake.Baker.return_value = baker
+        mocker.patch.dict(sys.modules, {"PyOpenColorIO": fake})
+        return fake
+
+    def test_display_view_uses_set_display_view(self, mocker, tmp_path: Path):
+        ocio_cfg = tmp_path / "config.ocio"
+        ocio_cfg.write_text("ocio_profile_version: 2\n")
+        ct = ColorTransform(
+            ocio_config=ocio_cfg,
+            src_colorspace="log",
+            display="sRGB - Display",
+            view="Standard",
+        )
+        fake = self._fake_ocio(mocker)
+        baker = fake.Baker.return_value
+
+        result = bake_to_cube(ct, tmp_path)
+
+        baker.setInputSpace.assert_called_once_with("log")
+        baker.setDisplayView.assert_called_once_with("sRGB - Display", "Standard")
+        baker.setTargetSpace.assert_not_called()
+        assert result == tmp_path / "plate_ocio_baked.cube"
+
+    def test_colorspace_mode_uses_set_target_space(self, mocker, tmp_path: Path):
+        ocio_cfg = tmp_path / "config.ocio"
+        ocio_cfg.write_text("ocio_profile_version: 2\n")
+        ct = ColorTransform(
+            ocio_config=ocio_cfg,
+            src_colorspace="log",
+            dst_colorspace="linear",
+        )
+        fake = self._fake_ocio(mocker)
+        baker = fake.Baker.return_value
+
+        bake_to_cube(ct, tmp_path)
+
+        baker.setTargetSpace.assert_called_once_with("linear")
+        baker.setDisplayView.assert_not_called()
+
+    def test_display_view_requires_ocio_v2(self, mocker, tmp_path: Path):
+        ocio_cfg = tmp_path / "config.ocio"
+        ocio_cfg.write_text("ocio_profile_version: 1\n")
+        ct = ColorTransform(
+            ocio_config=ocio_cfg,
+            src_colorspace="log",
+            display="sRGB - Display",
+            view="Standard",
+        )
+
+        class _V1Baker:
+            def setConfig(self, config): pass
+            def setFormat(self, fmt): pass
+            def setInputSpace(self, space): pass
+            def setTargetSpace(self, space): pass
+            def setCubeSize(self, size): pass
+            def bake(self, path): pass
+
+        self._fake_ocio(mocker, baker=_V1Baker())
+        with pytest.raises(RuntimeError, match="OpenColorIO >= 2.0"):
+            bake_to_cube(ct, tmp_path)
 
     def test_ocio_import_error_when_not_installed(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         ocio_cfg = tmp_path / "config.ocio"

@@ -39,7 +39,13 @@ class BatchEntry:
     ocio_config: Optional[str | Path] = None
     ocio_src: Optional[str] = None
     ocio_dst: Optional[str] = None
+    ocio_display: Optional[str] = None
+    ocio_view: Optional[str] = None
     burn_in: Optional[list[str]] = None
+    comfy: Optional[bool] = None
+    comfy_max_width: Optional[int] = None
+    shot: Optional[str] = None
+    shot_version: Optional[int] = None
 
 
 @dataclass
@@ -96,20 +102,59 @@ def load_batch_file(path: str | Path) -> list[BatchEntry]:
             ocio_config=item.get("ocio_config"),
             ocio_src=item.get("ocio_src"),
             ocio_dst=item.get("ocio_dst"),
+            ocio_display=item.get("ocio_display"),
+            ocio_view=item.get("ocio_view"),
             burn_in=item.get("burn_in"),
+            comfy=item.get("comfy"),
+            comfy_max_width=item.get("comfy_width"),
+            shot=item.get("shot"),
+            shot_version=item.get("shot_version"),
         ))
 
     return entries
 
 
-def _resolve_color(entry: BatchEntry) -> ColorTransform:
+def _resolve_color(
+    entry: BatchEntry,
+    ocio_display: Optional[str] = None,
+    ocio_view: Optional[str] = None,
+) -> ColorTransform:
     """Build a ColorTransform from a BatchEntry's optional color fields."""
+    # Display/view given without ocio_dst means the OCIO options describe
+    # the ComfyUI display bake only — the main transform stays inactive.
+    display_only = ocio_display is not None and entry.ocio_dst is None
     try:
         return ColorTransform.from_options(
             lut_path=entry.lut_path,
+            ocio_config=None if display_only else entry.ocio_config,
+            ocio_src=None if display_only else entry.ocio_src,
+            ocio_dst=entry.ocio_dst,
+        )
+    except ValueError as exc:
+        raise ValueError(f"Entry '{entry.source}': {exc}")
+
+
+def _resolve_comfy_color(
+    entry: BatchEntry,
+    fallback: ColorTransform,
+    default_display: Optional[str] = None,
+    default_view: Optional[str] = None,
+) -> ColorTransform:
+    """Color transform for the ComfyUI PNG export of one batch entry.
+
+    Uses the entry's (or global default) display/view when given, otherwise
+    falls back to the entry's main color transform.
+    """
+    display = entry.ocio_display if entry.ocio_display is not None else default_display
+    view = entry.ocio_view if entry.ocio_view is not None else default_view
+    if display is None and view is None:
+        return fallback
+    try:
+        return ColorTransform.from_options(
             ocio_config=entry.ocio_config,
             ocio_src=entry.ocio_src,
-            ocio_dst=entry.ocio_dst,
+            ocio_display=display,
+            ocio_view=view,
         )
     except ValueError as exc:
         raise ValueError(f"Entry '{entry.source}': {exc}")
@@ -149,7 +194,30 @@ def run_batch(
         progress(f"[{idx}/{len(entries)}] Processing {entry.source}...")
 
         try:
-            color_transform = _resolve_color(entry)
+            default_display = defaults.get("ocio_display")
+            default_view = defaults.get("ocio_view")
+            effective_display = (
+                entry.ocio_display if entry.ocio_display is not None else default_display
+            )
+            effective_view = (
+                entry.ocio_view if entry.ocio_view is not None else default_view
+            )
+            color_transform = _resolve_color(
+                entry, ocio_display=effective_display, ocio_view=effective_view
+            )
+
+            export_comfy = (
+                entry.comfy if entry.comfy is not None
+                else defaults.get("export_comfy", False)
+            )
+            comfy_color_transform = None
+            if export_comfy:
+                comfy_color_transform = _resolve_comfy_color(
+                    entry,
+                    fallback=color_transform,
+                    default_display=default_display,
+                    default_view=default_view,
+                )
 
             pipeline = PlatePipeline(
                 source=entry.source,
@@ -166,6 +234,11 @@ def run_batch(
                 export_nuke_script=entry.export_nuke_script if entry.export_nuke_script is not None else defaults.get("export_nuke_script", False),
                 color_transform=color_transform,
                 burn_in=entry.burn_in,
+                export_comfy=export_comfy,
+                comfy_max_width=entry.comfy_max_width if entry.comfy_max_width is not None else defaults.get("comfy_max_width", 1024),
+                comfy_color_transform=comfy_color_transform,
+                shot=entry.shot,
+                shot_version=entry.shot_version,
             )
 
             result = pipeline.run(progress=lambda msg, _pct=None: progress(f"  {msg}"))

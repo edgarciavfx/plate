@@ -55,6 +55,8 @@ shots/
 - **EXR export** — 32-bit float, configurable compression (none/rle/zip1/zip16)
 - **Proxy generation** — H.264, configurable max width, burn-in (frame number, timecode, source name)
 - **Color management** — LUT (.cube) or OCIO colorspace transform baked into EXRs and proxies
+- **ComfyUI export** — display-referred 16-bit PNG sequence (OCIO display/view baked in, scaled to a max width) ready for ComfyUI
+- **Shot scaffolding** — `--shot img01_env` lays out `ref/ comfy/ paint/ nuke/ renders/ breakdown/ plates/` task folders with versioned artifact names (`img01_env_v001`, auto-incremented per export); `--new-shot` scaffolds an empty shot
 - **Batch processing** — process multiple clips from a JSON file
 - **Export presets** — "ACES 2K", "Rec709 HD", "Archival 4K" with user-defined presets
 - **Nuke script export** — auto-generate a `.nk` script pointing at your EXR sequence
@@ -91,6 +93,50 @@ plate --batch BATCH_FILE [options]
 | `--ocio-config` | — | OCIO config path |
 | `--ocio-src` | — | Source colorspace |
 | `--ocio-dst` | — | Destination colorspace |
+| `--shot` | — | Shot name (e.g. `img01_env`); switches to the shot layout with versioned names |
+| `--shot-version` | auto | Force a version number (requires `--shot`) |
+| `--new-shot` | — | Scaffold an empty shot folder structure and exit |
+| `--comfy` | off | Also export display-referred 16-bit PNGs to `comfy/` |
+| `--comfy-width` | `1024` | Max width for ComfyUI PNGs (never scales up) |
+| `--ocio-display` | — | OCIO display for the ComfyUI export |
+| `--ocio-view` | — | OCIO view for the ComfyUI export |
+
+`--comfy` bakes `--ocio-display`/`--ocio-view` (with `--ocio-config` +
+`--ocio-src`) into the PNGs; without display/view it reuses the main
+color transform. Given without `--ocio-dst`, the OCIO options apply to
+the ComfyUI PNGs only and the EXRs/proxy are left untouched:
+
+```bash
+plate clip.mov --in 1001 --out 1100 --comfy \
+  --ocio-config config.ocio --ocio-src "ACEScct" \
+  --ocio-display "sRGB - Display" --ocio-view "ACES 1.0 - SDR Video"
+```
+
+### Shot mode
+
+```bash
+# Scaffold an empty shot
+plate --new-shot img01_env --output ./shots
+
+# Export into it — picks the next free version automatically
+plate clip.mov --in 1001 --out 1100 --shot img01_env --output ./shots --comfy --nuke-script
+```
+
+```
+shots/
+└── img01_env/
+    ├── ref/  paint/  renders/  breakdown/
+    ├── plates/img01_env_v001/img01_env_v001.001001.exr …
+    ├── comfy/img01_env_v001/img01_env_v001.001001.png …
+    ├── nuke/img01_env_v001.nk
+    ├── proxy_v001.mp4
+    └── manifest.json
+```
+
+Re-running the same command writes `_v002`, and `--shot-version 1`
+overwrites v001. The folder set is configurable via
+`[project] folders = [...]` in `~/.plate/config.toml`. Batch entries
+accept per-entry `"shot"` / `"shot_version"` keys.
 
 ### Batch mode
 

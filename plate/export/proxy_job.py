@@ -32,7 +32,7 @@ class ProxyJob:
         if session.metadata is None:
             raise RuntimeError("PlateSession has no metadata — run probe first.")
 
-        proxy_path = session.output_dir / "proxy.mp4"
+        proxy_path = session.output_dir / session.proxy_filename
         export_proxy(
             source_path=session.source_path,
             frame_range=session.frame_range,

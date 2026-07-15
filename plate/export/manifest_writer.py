@@ -36,11 +36,26 @@ class ManifestWriter:
             "exr_dir": str(session.exr_dir) if session.exr_dir else None,
         }
 
+        if session.shot_mode:
+            manifest["version"] = session.version
+            manifest["versioned_name"] = session.versioned_name
+
         if metadata is not None:
             manifest.update(metadata.to_dict())
 
         ct = session.color_transform
         manifest["color_transform"] = ct.to_dict() if ct is not None else {"mode": None}
+
+        manifest["comfy"] = None
+        if session.comfy_dir is not None:
+            cct = session.comfy_color_transform
+            manifest["comfy"] = {
+                "dir": str(session.comfy_dir),
+                "pattern": session.comfy_pattern,
+                "max_width": session.comfy_max_width,
+                "frames": session.comfy_frames,
+                "color_transform": cct.to_dict() if cct is not None else {"mode": None},
+            }
 
         return manifest
 

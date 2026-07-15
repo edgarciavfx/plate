@@ -95,6 +95,24 @@ class TestLoadBatchFile:
         with pytest.raises(FileNotFoundError):
             load_batch_file("/nonexistent/batch.json")
 
+    def test_shot_fields_parsed(self, tmp_path: Path):
+        data = [{
+            "source": "a.mov", "in": 1001, "out": 1100,
+            "shot": "img01_env", "shot_version": 2,
+        }]
+        path = tmp_path / "batch.json"
+        path.write_text(json.dumps(data))
+        entry = load_batch_file(path)[0]
+        assert entry.shot == "img01_env"
+        assert entry.shot_version == 2
+
+    def test_shot_fields_default_none(self, tmp_path: Path):
+        path = tmp_path / "batch.json"
+        path.write_text(json.dumps([{"source": "a.mov", "in": 1, "out": 10}]))
+        entry = load_batch_file(path)[0]
+        assert entry.shot is None
+        assert entry.shot_version is None
+
 
 class TestResolveColor:
     def test_no_color(self, sample_batch_entry: BatchEntry):
@@ -124,13 +142,51 @@ class TestResolveColor:
 
     def test_ocio_src_without_config_raises(self, sample_batch_entry: BatchEntry):
         sample_batch_entry.ocio_src = "log"
-        with pytest.raises(ValueError, match="ocio_src and ocio_dst require ocio_config"):
+        with pytest.raises(ValueError, match="require ocio_config"):
             _resolve_color(sample_batch_entry)
 
     def test_ocio_config_missing_src_dst_raises(self, sample_batch_entry: BatchEntry):
         sample_batch_entry.ocio_config = "/path/to/config.ocio"
-        with pytest.raises(ValueError, match="requires both ocio_src and ocio_dst"):
+        with pytest.raises(ValueError, match="requires ocio_src"):
             _resolve_color(sample_batch_entry)
+
+    def test_display_only_leaves_main_transform_inactive(self, sample_batch_entry: BatchEntry):
+        sample_batch_entry.ocio_config = "/path/to/config.ocio"
+        sample_batch_entry.ocio_src = "log"
+        ct = _resolve_color(
+            sample_batch_entry, ocio_display="sRGB - Display", ocio_view="Standard"
+        )
+        assert ct.is_active() is False
+
+
+class TestResolveComfyColor:
+    def test_display_view_builds_display_transform(self, sample_batch_entry: BatchEntry):
+        from plate.batch import _resolve_comfy_color
+        sample_batch_entry.ocio_config = "/path/to/config.ocio"
+        sample_batch_entry.ocio_src = "log"
+        sample_batch_entry.ocio_display = "sRGB - Display"
+        sample_batch_entry.ocio_view = "Standard"
+        ct = _resolve_comfy_color(sample_batch_entry, fallback=ColorTransform())
+        assert ct.is_display_view() is True
+        assert ct.display == "sRGB - Display"
+
+    def test_defaults_used_when_entry_has_no_display(self, sample_batch_entry: BatchEntry):
+        from plate.batch import _resolve_comfy_color
+        sample_batch_entry.ocio_config = "/path/to/config.ocio"
+        sample_batch_entry.ocio_src = "log"
+        ct = _resolve_comfy_color(
+            sample_batch_entry,
+            fallback=ColorTransform(),
+            default_display="sRGB - Display",
+            default_view="Standard",
+        )
+        assert ct.is_display_view() is True
+
+    def test_falls_back_without_display(self, sample_batch_entry: BatchEntry):
+        from plate.batch import _resolve_comfy_color
+        fallback = ColorTransform(lut_path=Path("/some/lut.cube"))
+        ct = _resolve_comfy_color(sample_batch_entry, fallback=fallback)
+        assert ct is fallback
 
 
 class TestRunBatch:
@@ -202,3 +258,58 @@ class TestRunBatch:
         assert kwargs["start_frame"] == 1001
         assert kwargs["exr_compression"] == "zip1"
         assert kwargs["frame_padding"] == 6
+
+    def test_run_batch_comfy_disabled_by_default(self, mocker, sample_batch_entry: BatchEntry):
+        mock_pipeline = mocker.patch("plate.batch.PlatePipeline", autospec=True)
+        mock_pipeline.return_value.run.return_value = mocker.MagicMock()
+
+        run_batch([sample_batch_entry], defaults={"output_root": "./out"})
+        _, kwargs = mock_pipeline.call_args
+        assert kwargs["export_comfy"] is False
+        assert kwargs["comfy_color_transform"] is None
+
+    def test_run_batch_comfy_with_display_defaults(self, mocker):
+        mock_pipeline = mocker.patch("plate.batch.PlatePipeline", autospec=True)
+        mock_pipeline.return_value.run.return_value = mocker.MagicMock()
+
+        entry = BatchEntry(
+            source="test.mov", in_frame=1, out_frame=10,
+            ocio_config="/cfg.ocio", ocio_src="log", comfy=True,
+        )
+        run_batch(
+            [entry],
+            defaults={
+                "output_root": "./out",
+                "comfy_max_width": 1280,
+                "ocio_display": "sRGB - Display",
+                "ocio_view": "Standard",
+            },
+        )
+        _, kwargs = mock_pipeline.call_args
+        assert kwargs["export_comfy"] is True
+        assert kwargs["comfy_max_width"] == 1280
+        assert kwargs["comfy_color_transform"].is_display_view() is True
+        # display/view without ocio_dst leaves the main transform inactive
+        assert kwargs["color_transform"].is_active() is False
+
+    def test_run_batch_forwards_shot_fields(self, mocker):
+        mock_pipeline = mocker.patch("plate.batch.PlatePipeline", autospec=True)
+        mock_pipeline.return_value.run.return_value = mocker.MagicMock()
+
+        entry = BatchEntry(
+            source="test.mov", in_frame=1, out_frame=10,
+            shot="img01_env", shot_version=3,
+        )
+        run_batch([entry], defaults={"output_root": "./out"})
+        _, kwargs = mock_pipeline.call_args
+        assert kwargs["shot"] == "img01_env"
+        assert kwargs["shot_version"] == 3
+
+    def test_run_batch_shot_defaults_none(self, mocker, sample_batch_entry: BatchEntry):
+        mock_pipeline = mocker.patch("plate.batch.PlatePipeline", autospec=True)
+        mock_pipeline.return_value.run.return_value = mocker.MagicMock()
+
+        run_batch([sample_batch_entry], defaults={"output_root": "./out"})
+        _, kwargs = mock_pipeline.call_args
+        assert kwargs["shot"] is None
+        assert kwargs["shot_version"] is None

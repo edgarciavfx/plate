@@ -47,3 +47,14 @@ class TestMerge:
         cmdline = {"proxy_max_width": 1920, "something_else": "value"}
         merged = merge(config, cmdline)
         assert merged["something_else"] == "value"
+
+    def test_export_defaults_include_comfy_keys(self):
+        assert EXPORT_DEFAULTS["comfy"] is False
+        assert EXPORT_DEFAULTS["comfy_max_width"] == 1024
+
+    def test_merge_picks_up_comfy_keys(self):
+        config = {"export": {"comfy": True, "comfy_max_width": 1536}}
+        cmdline = {"comfy": False, "comfy_max_width": 1024}
+        merged = merge(config, cmdline)
+        assert merged["comfy"] is True
+        assert merged["comfy_max_width"] == 1536

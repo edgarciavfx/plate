@@ -81,6 +81,9 @@ class _QueueWorker(QThread):
 
             try:
                 color_transform = self._resolve_color(entry)
+                comfy_color_transform = None
+                if entry.comfy:
+                    comfy_color_transform = self._resolve_comfy_color(entry)
                 pipeline = PlatePipeline(
                     source=entry.source,
                     in_frame=entry.in_frame,
@@ -96,6 +99,11 @@ class _QueueWorker(QThread):
                     export_nuke_script=entry.export_nuke_script,
                     color_transform=color_transform,
                     burn_in=entry.burn_in,
+                    export_comfy=entry.comfy,
+                    comfy_max_width=entry.comfy_max_width,
+                    comfy_color_transform=comfy_color_transform,
+                    shot=entry.shot,
+                    shot_version=entry.shot_version,
                 )
 
                 def _progress(msg, pct=0, _idx=idx):
@@ -131,6 +139,17 @@ class _QueueWorker(QThread):
                 dst_colorspace=entry.ocio_dst,
             )
         return ColorTransform()
+
+    @staticmethod
+    def _resolve_comfy_color(entry: QueueEntry) -> ColorTransform:
+        if entry.ocio_display and entry.ocio_view and entry.ocio_config:
+            return ColorTransform(
+                ocio_config=Path(entry.ocio_config),
+                src_colorspace=entry.ocio_src,
+                display=entry.ocio_display,
+                view=entry.ocio_view,
+            )
+        return _QueueWorker._resolve_color(entry)
 
 
 class _ThumbnailWorker(QThread):
@@ -239,6 +258,18 @@ class SessionController(QObject):
             )
             return
 
+        comfy_color_transform = None
+        if options.get("comfy"):
+            comfy_color_transform = self._comfy_transform_from_options(
+                options, fallback=color_transform
+            )
+            if comfy_color_transform is None:
+                self.exportFailed.emit(
+                    "Invalid ComfyUI display transform options. "
+                    "Display/view need an OCIO config and source colorspace."
+                )
+                return
+
         pipeline = PlatePipeline(
             source=self.source_path,
             in_frame=in_frame,
@@ -254,6 +285,11 @@ class SessionController(QObject):
             export_nuke_script=options.get("export_nuke_script", False),
             color_transform=color_transform,
             burn_in=options.get("burn_in"),
+            export_comfy=options.get("comfy", False),
+            comfy_max_width=options.get("comfy_max_width", 1024),
+            comfy_color_transform=comfy_color_transform,
+            shot=options.get("shot"),
+            shot_version=options.get("shot_version"),
         )
 
         self._worker = _ExportWorker(pipeline)
@@ -281,6 +317,26 @@ class SessionController(QObject):
         except ValueError:
             return None
 
+    def _comfy_transform_from_options(
+        self, options: dict, fallback: ColorTransform
+    ) -> ColorTransform | None:
+        """Color transform for the ComfyUI PNG export. Falls back to the
+        main transform when no display/view is given; None means invalid.
+        """
+        display = options.get("ocio_display")
+        view = options.get("ocio_view")
+        if not display and not view:
+            return fallback
+        try:
+            return ColorTransform.from_options(
+                ocio_config=options.get("ocio_config"),
+                ocio_src=options.get("ocio_src"),
+                ocio_display=display,
+                ocio_view=view,
+            )
+        except ValueError:
+            return None
+
     def _on_export_finished(self, result: PipelineResult) -> None:
         self.exportFinished.emit(result)
 
@@ -305,7 +361,13 @@ class SessionController(QObject):
             ocio_config=options.get("ocio_config"),
             ocio_src=options.get("ocio_src"),
             ocio_dst=options.get("ocio_dst"),
+            ocio_display=options.get("ocio_display"),
+            ocio_view=options.get("ocio_view"),
             burn_in=options.get("burn_in"),
+            comfy=options.get("comfy", False),
+            comfy_max_width=options.get("comfy_max_width", 1024),
+            shot=options.get("shot"),
+            shot_version=options.get("shot_version"),
         )
         return entry
 

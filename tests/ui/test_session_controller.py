@@ -125,6 +125,36 @@ class TestSessionController:
         })
         assert ct is None
 
+    def test_comfy_transform_from_options_falls_back(self):
+        from plate.color import ColorTransform
+        ctrl = SessionController()
+        fallback = ColorTransform()
+        ct = ctrl._comfy_transform_from_options({}, fallback=fallback)
+        assert ct is fallback
+
+    def test_comfy_transform_from_options_display_view(self, tmp_path: Path):
+        from plate.color import ColorTransform
+        config = tmp_path / "config.ocio"
+        config.write_text("ocio_profile_version: 2\n")
+        ctrl = SessionController()
+        ct = ctrl._comfy_transform_from_options({
+            "ocio_config": config,
+            "ocio_src": "log",
+            "ocio_display": "sRGB - Display",
+            "ocio_view": "Standard",
+        }, fallback=ColorTransform())
+        assert ct is not None
+        assert ct.is_display_view() is True
+
+    def test_comfy_transform_from_options_invalid(self):
+        from plate.color import ColorTransform
+        ctrl = SessionController()
+        ct = ctrl._comfy_transform_from_options({
+            "ocio_display": "sRGB - Display",
+            # no view, no config -> invalid
+        }, fallback=ColorTransform())
+        assert ct is None
+
     def test_add_to_queue(self, sample_metadata):
         ctrl = SessionController()
         ctrl.metadata = sample_metadata
@@ -135,6 +165,50 @@ class TestSessionController:
         assert entry.out_frame == 1100
         assert entry.start_frame == 1001
         assert entry.status == "pending"
+        assert entry.comfy is False
+
+    def test_add_to_queue_with_comfy_options(self, sample_metadata):
+        ctrl = SessionController()
+        ctrl.metadata = sample_metadata
+        entry = ctrl.add_to_queue("test.mov", 1050, 1100, {
+            "comfy": True,
+            "comfy_max_width": 1280,
+            "ocio_display": "sRGB - Display",
+            "ocio_view": "Standard",
+        })
+        assert entry.comfy is True
+        assert entry.comfy_max_width == 1280
+        assert entry.ocio_display == "sRGB - Display"
+        assert entry.ocio_view == "Standard"
+
+    def test_add_to_queue_with_shot_options(self, sample_metadata):
+        ctrl = SessionController()
+        ctrl.metadata = sample_metadata
+        entry = ctrl.add_to_queue("test.mov", 1050, 1100, {
+            "shot": "img01_env",
+            "shot_version": 2,
+        })
+        assert entry.shot == "img01_env"
+        assert entry.shot_version == 2
+
+    def test_add_to_queue_shot_defaults_none(self, sample_metadata):
+        ctrl = SessionController()
+        ctrl.metadata = sample_metadata
+        entry = ctrl.add_to_queue("test.mov", 1050, 1100, {})
+        assert entry.shot is None
+        assert entry.shot_version is None
+
+    def test_start_export_forwards_shot(self, qtbot: QtBot, mocker, tmp_path: Path):
+        mock_pipeline = mocker.patch(
+            "plate.ui.session_controller.PlatePipeline", autospec=True
+        )
+        mocker.patch("plate.ui.session_controller._ExportWorker")
+        ctrl = SessionController()
+        ctrl.source_path = tmp_path / "test.mov"
+        ctrl.start_export(1050, 1100, {"shot": "img01_env", "shot_version": 3})
+        kwargs = mock_pipeline.call_args[1]
+        assert kwargs["shot"] == "img01_env"
+        assert kwargs["shot_version"] == 3
 
     def test_is_queue_running_false_initially(self):
         ctrl = SessionController()

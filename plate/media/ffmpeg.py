@@ -100,6 +100,61 @@ def export_exr_sequence(
     return frame_range.frame_count
 
 
+def export_png_sequence(
+    source_path: str | Path,
+    frame_range: FrameRange,
+    fps: float,
+    png_dir: str | Path,
+    shot_name: str,
+    max_width: int = 1024,
+    frame_padding: int = 6,
+    color_transform: "ColorTransform | None" = None,
+) -> int:
+    """Export a 16-bit PNG sequence covering frame_range.in_frame..out_frame,
+    scaled down if wider than max_width (never scaled up).
+
+    Intended for display-referred deliveries (e.g. ComfyUI): the caller's
+    color_transform — typically an OCIO display/view bake — is applied via
+    lut3d after scaling. FFmpeg decodes the source with no color management,
+    so the transform's declared input space must match the footage.
+
+    Files are named '{shot_name}.%0{padding}d.png' with numbering matching
+    the source's original frame numbers (via -start_number).
+
+    Returns:
+        The number of frames exported.
+    """
+    _check_binary()
+    png_dir = Path(png_dir)
+    png_dir.mkdir(parents=True, exist_ok=True)
+
+    seek = frame_range.seek_offset_seconds(fps)
+    duration = frame_range.duration_seconds(fps)
+    pattern = png_dir / f"{shot_name}.%0{frame_padding}d.png"
+
+    with _lut_context(color_transform) as cube_path:
+        # Scale first (fewer pixels through the LUT); force a 16-bit
+        # intermediate so filter negotiation never drops to 8-bit before
+        # the lut3d runs.
+        vf = f"scale='min({max_width},iw)':-2"
+        if cube_path is not None:
+            vf += f",format=rgb48le,lut3d={cube_path}"
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(source_path),
+            "-ss", f"{seek:.6f}",
+            "-t", f"{duration:.6f}",
+            "-vf", vf,
+            "-pix_fmt", "rgb48be",
+            "-start_number", str(frame_range.in_frame),
+            str(pattern),
+        ]
+        _run(cmd)
+
+    return frame_range.frame_count
+
+
 def _build_proxy_filter_graph(
     max_width: int,
     source_name: str,

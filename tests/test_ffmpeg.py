@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from plate.media.ffmpeg import export_exr_sequence, export_proxy, _lut_context, FFmpegError
+from plate.media.ffmpeg import (
+    export_exr_sequence,
+    export_png_sequence,
+    export_proxy,
+    _lut_context,
+    FFmpegError,
+)
 from plate.models.frame_range import FrameRange
 
 
@@ -247,6 +253,141 @@ class TestExportProxy:
         assert "drawtext" in vf
         assert "Frame %{frame_num}" in vf
         assert "source.mov" in vf
+
+
+class TestExportPngSequence:
+    def test_builds_correct_ffmpeg_command(self, mocker, tmp_path: Path):
+        source = tmp_path / "source.mov"
+        source.write_text("fake")
+        png_dir = tmp_path / "comfy"
+        frame_range = FrameRange(start_frame=1001, in_frame=1050, out_frame=1100)
+
+        mock_run = mocker.patch("plate.media.ffmpeg._run")
+
+        export_png_sequence(
+            source_path=source,
+            frame_range=frame_range,
+            fps=24.0,
+            png_dir=png_dir,
+            shot_name="test_clip",
+        )
+
+        cmd = mock_run.call_args[0][0]
+        assert "ffmpeg" in cmd[0]
+        assert str(source) in cmd
+        pixfmt_idx = cmd.index("-pix_fmt")
+        assert cmd[pixfmt_idx + 1] == "rgb48be"
+        start_idx = cmd.index("-start_number")
+        assert cmd[start_idx + 1] == "1050"
+        assert "test_clip.%06d.png" in cmd[-1]
+
+    def test_scale_filter_never_upscales(self, mocker, tmp_path: Path):
+        source = tmp_path / "source.mov"
+        source.write_text("fake")
+        frame_range = FrameRange(start_frame=1001, in_frame=1050, out_frame=1100)
+
+        mock_run = mocker.patch("plate.media.ffmpeg._run")
+
+        export_png_sequence(
+            source_path=source,
+            frame_range=frame_range,
+            fps=24.0,
+            png_dir=tmp_path / "comfy",
+            shot_name="test",
+            max_width=1024,
+        )
+
+        cmd = mock_run.call_args[0][0]
+        vf = cmd[cmd.index("-vf") + 1]
+        assert "min(1024,iw)" in vf
+
+    def test_lut_applied_after_scale_and_16bit_format(self, mocker, tmp_path: Path, lut_color_transform):
+        source = tmp_path / "source.mov"
+        source.write_text("fake")
+        frame_range = FrameRange(start_frame=1001, in_frame=1050, out_frame=1100)
+
+        mock_run = mocker.patch("plate.media.ffmpeg._run")
+        mocker.patch("plate.color.bake_to_cube", return_value=Path("/tmp/cube.cube"))
+
+        export_png_sequence(
+            source_path=source,
+            frame_range=frame_range,
+            fps=24.0,
+            png_dir=tmp_path / "comfy",
+            shot_name="test",
+            color_transform=lut_color_transform,
+        )
+
+        cmd = mock_run.call_args[0][0]
+        vf = cmd[cmd.index("-vf") + 1]
+        assert vf.index("scale=") < vf.index("format=rgb48le") < vf.index("lut3d=")
+
+    def test_no_lut_filter_when_no_color_transform(self, mocker, tmp_path: Path, empty_color_transform):
+        source = tmp_path / "source.mov"
+        source.write_text("fake")
+        frame_range = FrameRange(start_frame=1001, in_frame=1050, out_frame=1100)
+
+        mock_run = mocker.patch("plate.media.ffmpeg._run")
+
+        export_png_sequence(
+            source_path=source,
+            frame_range=frame_range,
+            fps=24.0,
+            png_dir=tmp_path / "comfy",
+            shot_name="test",
+            color_transform=empty_color_transform,
+        )
+
+        cmd = mock_run.call_args[0][0]
+        vf = cmd[cmd.index("-vf") + 1]
+        assert "lut3d" not in vf
+        assert "scale=" in vf
+
+    def test_custom_frame_padding(self, mocker, tmp_path: Path):
+        source = tmp_path / "source.mov"
+        source.write_text("fake")
+        frame_range = FrameRange(start_frame=1001, in_frame=1050, out_frame=1100)
+
+        mock_run = mocker.patch("plate.media.ffmpeg._run")
+
+        export_png_sequence(
+            source_path=source,
+            frame_range=frame_range,
+            fps=24.0,
+            png_dir=tmp_path / "comfy",
+            shot_name="test",
+            frame_padding=4,
+        )
+
+        cmd = mock_run.call_args[0][0]
+        assert "test.%04d.png" in cmd[-1]
+
+    def test_returns_frame_count(self, mocker, tmp_path: Path):
+        source = tmp_path / "source.mov"
+        source.write_text("fake")
+        frame_range = FrameRange(start_frame=1001, in_frame=1050, out_frame=1100)
+
+        mocker.patch("plate.media.ffmpeg._run")
+        result = export_png_sequence(
+            source_path=source,
+            frame_range=frame_range,
+            fps=24.0,
+            png_dir=tmp_path / "comfy",
+            shot_name="test",
+        )
+        assert result == 51
+
+    def test_ffmpeg_not_on_path(self, mocker, tmp_path: Path):
+        frame_range = FrameRange(start_frame=1001, in_frame=1050, out_frame=1100)
+        mocker.patch("plate.media.ffmpeg.shutil.which", return_value=None)
+        with pytest.raises(FFmpegError, match="not found on PATH"):
+            export_png_sequence(
+                source_path=tmp_path / "source.mov",
+                frame_range=frame_range,
+                fps=24.0,
+                png_dir=tmp_path / "comfy",
+                shot_name="test",
+            )
 
 
 class TestLutContext:

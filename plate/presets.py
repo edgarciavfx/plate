@@ -21,6 +21,8 @@ class ExportPreset:
     exr_pixel_format: str = "gbrpf32le"
     exr_compression: str = "zip1"
     frame_padding: int = 6
+    comfy: bool = False
+    comfy_max_width: int = 1024
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -28,6 +30,8 @@ class ExportPreset:
             "exr_pixel_format": self.exr_pixel_format,
             "exr_compression": self.exr_compression,
             "frame_padding": self.frame_padding,
+            "comfy": self.comfy,
+            "comfy_max_width": self.comfy_max_width,
         }
 
 

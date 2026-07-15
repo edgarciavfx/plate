@@ -37,6 +37,13 @@ class TestBuildParser:
         assert ns.lut_path is None
         assert ns.ocio_config is None
         assert ns.burn_in is None
+        assert ns.comfy is False
+        assert ns.comfy_max_width == 1024
+        assert ns.ocio_display is None
+        assert ns.ocio_view is None
+        assert ns.shot is None
+        assert ns.shot_version is None
+        assert ns.new_shot is None
 
     def test_parser_batch_mode(self):
         parser = build_parser()
@@ -129,4 +136,145 @@ class TestMain:
     def test_batch_mode_load_error(self, mocker):
         mocker.patch("plate.cli.load_batch_file", side_effect=FileNotFoundError("no file"))
         rc = main(["--batch", "nonexistent.json"])
+        assert rc == 1
+
+
+class TestComfyCli:
+    def test_comfy_flags_parsed(self):
+        parser = build_parser()
+        ns = parser.parse_args([
+            "test.mov", "--in", "10", "--out", "20",
+            "--comfy", "--comfy-width", "1280",
+            "--ocio-config", "config.ocio", "--ocio-src", "log",
+            "--ocio-display", "sRGB - Display", "--ocio-view", "Standard",
+        ])
+        assert ns.comfy is True
+        assert ns.comfy_max_width == 1280
+        assert ns.ocio_display == "sRGB - Display"
+        assert ns.ocio_view == "Standard"
+
+    def test_comfy_display_without_view_returns_1(self, mocker):
+        mocker.patch("plate.cli.PlatePipeline", autospec=True)
+        rc = main([
+            "test.mov", "--in", "10", "--out", "20",
+            "--comfy", "--ocio-config", "config.ocio", "--ocio-src", "log",
+            "--ocio-display", "sRGB - Display",
+        ])
+        assert rc == 1
+
+    def test_comfy_display_transform_passed_to_pipeline(self, mocker):
+        mock_pipeline = mocker.patch("plate.cli.PlatePipeline", autospec=True)
+        mock_pipeline.return_value.run.return_value = mocker.MagicMock()
+
+        rc = main([
+            "test.mov", "--in", "10", "--out", "20",
+            "--comfy", "--comfy-width", "1280",
+            "--ocio-config", "config.ocio", "--ocio-src", "log",
+            "--ocio-display", "sRGB - Display", "--ocio-view", "Standard",
+        ])
+        assert rc == 0
+        kwargs = mock_pipeline.call_args[1]
+        assert kwargs["export_comfy"] is True
+        assert kwargs["comfy_max_width"] == 1280
+        comfy_ct = kwargs["comfy_color_transform"]
+        assert comfy_ct.display == "sRGB - Display"
+        assert comfy_ct.view == "Standard"
+        # Display/view without --ocio-dst leaves the main transform inactive.
+        assert kwargs["color_transform"].is_active() is False
+
+    def test_comfy_falls_back_to_main_transform(self, mocker):
+        mock_pipeline = mocker.patch("plate.cli.PlatePipeline", autospec=True)
+        mock_pipeline.return_value.run.return_value = mocker.MagicMock()
+
+        rc = main([
+            "test.mov", "--in", "10", "--out", "20",
+            "--comfy", "--lut", "test.cube",
+        ])
+        assert rc == 0
+        kwargs = mock_pipeline.call_args[1]
+        assert kwargs["comfy_color_transform"] is kwargs["color_transform"]
+        assert kwargs["color_transform"].lut_path is not None
+
+    def test_no_comfy_passes_disabled(self, mocker):
+        mock_pipeline = mocker.patch("plate.cli.PlatePipeline", autospec=True)
+        mock_pipeline.return_value.run.return_value = mocker.MagicMock()
+
+        rc = main(["test.mov", "--in", "10", "--out", "20"])
+        assert rc == 0
+        kwargs = mock_pipeline.call_args[1]
+        assert kwargs["export_comfy"] is False
+        assert kwargs["comfy_color_transform"] is None
+
+
+class TestShotCli:
+    def test_shot_flags_parsed(self):
+        parser = build_parser()
+        ns = parser.parse_args([
+            "test.mov", "--in", "10", "--out", "20",
+            "--shot", "img01_env", "--shot-version", "3",
+        ])
+        assert ns.shot == "img01_env"
+        assert ns.shot_version == 3
+
+    def test_shot_forwarded_to_pipeline(self, mocker):
+        mock_pipeline = mocker.patch("plate.cli.PlatePipeline", autospec=True)
+        mock_pipeline.return_value.run.return_value = mocker.MagicMock()
+
+        rc = main([
+            "test.mov", "--in", "10", "--out", "20",
+            "--shot", "img01_env", "--shot-version", "2",
+        ])
+        assert rc == 0
+        kwargs = mock_pipeline.call_args[1]
+        assert kwargs["shot"] == "img01_env"
+        assert kwargs["shot_version"] == 2
+
+    def test_no_shot_forwards_none(self, mocker):
+        mock_pipeline = mocker.patch("plate.cli.PlatePipeline", autospec=True)
+        mock_pipeline.return_value.run.return_value = mocker.MagicMock()
+
+        rc = main(["test.mov", "--in", "10", "--out", "20"])
+        assert rc == 0
+        kwargs = mock_pipeline.call_args[1]
+        assert kwargs["shot"] is None
+        assert kwargs["shot_version"] is None
+
+    def test_shot_version_without_shot_returns_1(self):
+        rc = main(["test.mov", "--in", "10", "--out", "20", "--shot-version", "2"])
+        assert rc == 1
+
+    def test_shot_with_batch_returns_1(self):
+        rc = main(["--batch", "jobs.json", "--shot", "img01_env"])
+        assert rc == 1
+
+    def test_new_shot_with_source_returns_1(self):
+        rc = main(["test.mov", "--new-shot", "img01_env"])
+        assert rc == 1
+
+    def test_new_shot_with_batch_returns_1(self):
+        rc = main(["--batch", "jobs.json", "--new-shot", "img01_env"])
+        assert rc == 1
+
+    def test_new_shot_scaffolds_and_exits(self, mocker, tmp_path: Path):
+        mocker.patch("plate.cli.load_config", return_value={})
+        rc = main(["--new-shot", "img01_env", "--output", str(tmp_path / "shots")])
+        assert rc == 0
+        shot_dir = tmp_path / "shots" / "img01_env"
+        for folder in ("ref", "comfy", "paint", "nuke", "renders", "breakdown", "plates"):
+            assert (shot_dir / folder).is_dir()
+
+    def test_new_shot_custom_folders_from_config(self, mocker, tmp_path: Path):
+        mocker.patch(
+            "plate.cli.load_config",
+            return_value={"project": {"folders": ["ref", "plates"]}},
+        )
+        rc = main(["--new-shot", "img01_env", "--output", str(tmp_path / "shots")])
+        assert rc == 0
+        shot_dir = tmp_path / "shots" / "img01_env"
+        assert (shot_dir / "ref").is_dir()
+        assert not (shot_dir / "paint").exists()
+
+    def test_new_shot_invalid_name_returns_1(self, mocker, tmp_path: Path):
+        mocker.patch("plate.cli.load_config", return_value={})
+        rc = main(["--new-shot", "a/b", "--output", str(tmp_path / "shots")])
         assert rc == 1

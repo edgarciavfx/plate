@@ -8,6 +8,8 @@ try:
 except ImportError:
     import tomli as tomllib  # type: ignore[no-redef]
 
+from .project import DEFAULT_SHOT_FOLDERS
+
 
 _CONFIG_DIR = Path.home() / ".plate"
 _CONFIG_PATH = _CONFIG_DIR / "config.toml"
@@ -22,6 +24,12 @@ EXPORT_DEFAULTS: dict[str, Any] = {
     "skip_exr": False,
     "skip_proxy": False,
     "burn_in": None,
+    "comfy": False,
+    "comfy_max_width": 1024,
+}
+
+PROJECT_DEFAULTS: dict[str, Any] = {
+    "folders": list(DEFAULT_SHOT_FOLDERS),
 }
 
 COLOR_DEFAULTS: dict[str, Any] = {
@@ -29,6 +37,8 @@ COLOR_DEFAULTS: dict[str, Any] = {
     "ocio_config": None,
     "ocio_src": None,
     "ocio_dst": None,
+    "ocio_display": None,
+    "ocio_view": None,
 }
 
 

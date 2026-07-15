@@ -14,7 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from . import config
 from .color import ColorTransform
+from .export.comfy_job import ComfyExportJob
 from .export.export_job import ExportJob
 from .export.manifest_writer import ManifestWriter
 from .export.nuke_export import NukeWriter
@@ -22,6 +24,7 @@ from .export.proxy_job import ProxyJob
 from .media.ffprobe import probe
 from .models.frame_range import FrameRange
 from .models.plate_session import PlateSession
+from .project import next_version, resolve_folders
 
 
 @dataclass
@@ -51,6 +54,11 @@ class PlatePipeline:
         export_nuke_script: bool = False,
         color_transform: Optional[ColorTransform] = None,
         burn_in: Optional[list[str]] = None,
+        export_comfy: bool = False,
+        comfy_max_width: int = 1024,
+        comfy_color_transform: Optional[ColorTransform] = None,
+        shot: Optional[str] = None,
+        shot_version: Optional[int] = None,
     ):
         self.source = Path(source)
         self.in_frame = in_frame
@@ -66,6 +74,11 @@ class PlatePipeline:
         self.export_nuke_script = export_nuke_script
         self.color_transform = color_transform
         self.burn_in = burn_in
+        self.export_comfy = export_comfy
+        self.comfy_max_width = comfy_max_width
+        self.comfy_color_transform = comfy_color_transform
+        self.shot = shot
+        self.shot_version = shot_version
 
     def run(self, progress=print) -> PipelineResult:
         """Run the full pipeline. `progress` is called with short status
@@ -85,15 +98,23 @@ class PlatePipeline:
             out_frame=self.out_frame,
         )
 
-        shot_output_dir = self.output_root / self.source.stem
+        if self.shot:
+            shot_output_dir = self.output_root / self.shot
+            version = self.shot_version or next_version(shot_output_dir, self.shot)
+        else:
+            shot_output_dir = self.output_root / self.source.stem
+            version = 1
         session = PlateSession(
             source_path=self.source,
             output_dir=shot_output_dir,
             frame_range=frame_range,
+            shot=self.shot,
+            version=version,
         )
         session.metadata = metadata
         session.color_transform = self.color_transform
-        session.ensure_output_dirs()
+        scaffold_folders = resolve_folders(config.load()) if self.shot else None
+        session.ensure_output_dirs(scaffold_folders)
 
         if self.skip_proxy:
             progress("Skipping proxy generation.", 30)
@@ -118,7 +139,20 @@ class PlatePipeline:
                 frame_padding=self.frame_padding,
                 color_transform=self.color_transform,
             ).run()
-            progress("EXR sequence done.", 80)
+            progress("EXR sequence done.", 78)
+
+        if self.export_comfy:
+            progress(
+                f"Generating ComfyUI PNG sequence ({frame_range.frame_count} frames)...",
+                80,
+            )
+            ComfyExportJob(
+                session,
+                max_width=self.comfy_max_width,
+                frame_padding=self.frame_padding,
+                color_transform=self.comfy_color_transform,
+            ).run()
+            progress("ComfyUI PNGs done.", 88)
 
         progress("Writing manifest...", 90)
         manifest_path = ManifestWriter(session).write()

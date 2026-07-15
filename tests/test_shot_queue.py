@@ -28,6 +28,36 @@ class TestQueueEntry:
         entry = QueueEntry(source="test.mov", in_frame=1, out_frame=10)
         assert entry.status == "pending"
 
+    def test_comfy_defaults(self):
+        entry = QueueEntry(source="test.mov", in_frame=1, out_frame=10)
+        assert entry.comfy is False
+        assert entry.comfy_max_width == 1024
+        assert entry.ocio_display is None
+        assert entry.ocio_view is None
+
+    def test_load_entry_without_comfy_fields(self, patch_queue_path: Path):
+        # queue.json written by an older plate version must still load
+        import json
+        patch_queue_path.parent.mkdir(parents=True, exist_ok=True)
+        patch_queue_path.write_text(json.dumps([
+            {"source": "old.mov", "in_frame": 1, "out_frame": 10}
+        ]))
+        queue = ShotQueue.load()
+        assert queue[0].comfy is False
+        assert queue[0].comfy_max_width == 1024
+        assert queue[0].shot is None
+        assert queue[0].shot_version is None
+
+    def test_shot_fields_round_trip(self, patch_queue_path: Path):
+        q = ShotQueue()
+        q.add(QueueEntry(
+            source="a.mov", in_frame=1, out_frame=10,
+            shot="img01_env", shot_version=2,
+        ))
+        q2 = ShotQueue.load()
+        assert q2[0].shot == "img01_env"
+        assert q2[0].shot_version == 2
+
 
 class TestShotQueue:
     def test_empty_queue(self):

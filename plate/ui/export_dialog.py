@@ -55,6 +55,17 @@ class ExportDialog(QDialog):
         output_row_widget = QWidget()
         output_row_widget.setLayout(output_row)
 
+        self._shot_edit = QLineEdit(self._defaults.get("shot") or "")
+        self._shot_edit.setPlaceholderText(
+            "e.g. img01_env — empty keeps the classic layout"
+        )
+        self._shot_edit.textChanged.connect(self._on_shot_changed)
+
+        self._shot_version_spin = QSpinBox()
+        self._shot_version_spin.setRange(0, 999)
+        self._shot_version_spin.setSpecialValueText("auto")
+        self._shot_version_spin.setValue(self._defaults.get("shot_version") or 0)
+
         self._proxy_width_spin = QSpinBox()
         self._proxy_width_spin.setRange(320, 7680)
         self._proxy_width_spin.setValue(self._defaults.get("proxy_max_width", 1920))
@@ -119,6 +130,35 @@ class ExportDialog(QDialog):
         self._ocio_dst_edit.setPlaceholderText("e.g. \"ACEScg\"")
         self._ocio_dst_label = QLabel("Dest colorspace:")
 
+        # -- ComfyUI export section -----------------------------------------
+        self._comfy_check = QCheckBox("Generate 16-bit PNG sequence (display-referred)")
+        self._comfy_check.setChecked(bool(self._defaults.get("comfy", False)))
+        self._comfy_check.toggled.connect(self._on_comfy_toggled)
+
+        self._comfy_width_spin = QSpinBox()
+        self._comfy_width_spin.setRange(320, 7680)
+        self._comfy_width_spin.setSingleStep(64)
+        self._comfy_width_spin.setValue(self._defaults.get("comfy_max_width", 1024))
+
+        self._ocio_display_edit = QLineEdit()
+        self._ocio_display_edit.setPlaceholderText("e.g. \"sRGB - Display\"")
+        self._ocio_view_edit = QLineEdit()
+        self._ocio_view_edit.setPlaceholderText("e.g. \"ACES 1.0 - SDR Video\"")
+
+        comfy_hint = QLabel(
+            "Display/view are baked using the OCIO config and source "
+            "colorspace above. Leave empty to reuse the main color transform."
+        )
+        comfy_hint.setWordWrap(True)
+
+        comfy_group = QGroupBox("ComfyUI export")
+        comfy_form = QFormLayout(comfy_group)
+        comfy_form.addRow(self._comfy_check)
+        comfy_form.addRow("Max width:", self._comfy_width_spin)
+        comfy_form.addRow("OCIO display:", self._ocio_display_edit)
+        comfy_form.addRow("OCIO view:", self._ocio_view_edit)
+        comfy_form.addRow(comfy_hint)
+
         # -- burn-in section -----------------------------------------------
         self._burn_frame_check = QCheckBox("Frame number")
         self._burn_source_check = QCheckBox("Source name")
@@ -133,6 +173,8 @@ class ExportDialog(QDialog):
         form = QFormLayout()
         form.addRow("Preset:", self._preset_combo)
         form.addRow("Output directory:", output_row_widget)
+        form.addRow("Shot name:", self._shot_edit)
+        form.addRow("Shot version:", self._shot_version_spin)
         form.addRow("Proxy max width:", self._proxy_width_spin)
         form.addRow("EXR pixel format:", self._pixfmt_combo)
         form.addRow("EXR compression:", self._exr_codec_combo)
@@ -142,6 +184,7 @@ class ExportDialog(QDialog):
         form.addRow(self._ocio_config_label, self._ocio_config_row_widget)
         form.addRow(self._ocio_src_label, self._ocio_src_edit)
         form.addRow(self._ocio_dst_label, self._ocio_dst_edit)
+        form.addRow(comfy_group)
         form.addRow(burn_group)
         form.addRow(self._skip_exr_check)
         form.addRow(self._skip_proxy_check)
@@ -161,6 +204,11 @@ class ExportDialog(QDialog):
         layout.addWidget(buttons)
 
         self._on_color_mode_changed(0)  # initialise visibility
+        self._on_comfy_toggled(self._comfy_check.isChecked())
+        self._on_shot_changed(self._shot_edit.text())
+
+    def _on_shot_changed(self, text: str) -> None:
+        self._shot_version_spin.setEnabled(bool(text.strip()))
 
     def _on_preset_changed(self, index: int) -> None:
         if self._suppress_preset:
@@ -181,19 +229,30 @@ class ExportDialog(QDialog):
         if idx >= 0:
             self._exr_codec_combo.setCurrentIndex(idx)
         self._frame_padding_spin.setValue(values.get("frame_padding", 6))
+        self._comfy_check.setChecked(values.get("comfy", False))
+        self._comfy_width_spin.setValue(values.get("comfy_max_width", 1024))
 
     def _on_color_mode_changed(self, index: int) -> None:
         is_lut = index == 1
         is_ocio = index == 2
+        # The comfy display/view bake shares the OCIO config + source
+        # colorspace fields, so keep them visible while comfy is enabled.
+        show_ocio = is_ocio or self._comfy_check.isChecked()
         self._lut_label.setVisible(is_lut)
         self._lut_row_widget.setVisible(is_lut)
-        self._ocio_config_label.setVisible(is_ocio)
-        self._ocio_config_row_widget.setVisible(is_ocio)
-        self._ocio_src_label.setVisible(is_ocio)
-        self._ocio_src_edit.setVisible(is_ocio)
+        self._ocio_config_label.setVisible(show_ocio)
+        self._ocio_config_row_widget.setVisible(show_ocio)
+        self._ocio_src_label.setVisible(show_ocio)
+        self._ocio_src_edit.setVisible(show_ocio)
         self._ocio_dst_label.setVisible(is_ocio)
         self._ocio_dst_edit.setVisible(is_ocio)
         self.adjustSize()
+
+    def _on_comfy_toggled(self, checked: bool) -> None:
+        self._comfy_width_spin.setEnabled(checked)
+        self._ocio_display_edit.setEnabled(checked)
+        self._ocio_view_edit.setEnabled(checked)
+        self._on_color_mode_changed(self._color_mode_combo.currentIndex())
 
     def _browse_output_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Choose output directory")
@@ -240,4 +299,10 @@ class ExportDialog(QDialog):
             "ocio_src": self._ocio_src_edit.text() or None,
             "ocio_dst": self._ocio_dst_edit.text() or None,
             "burn_in": burn_in or None,
+            "comfy": self._comfy_check.isChecked(),
+            "comfy_max_width": self._comfy_width_spin.value(),
+            "ocio_display": self._ocio_display_edit.text() or None,
+            "ocio_view": self._ocio_view_edit.text() or None,
+            "shot": self._shot_edit.text().strip() or None,
+            "shot_version": self._shot_version_spin.value() or None,
         }

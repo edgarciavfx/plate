@@ -29,7 +29,13 @@ class QueueEntry:
     ocio_config: Optional[str] = None
     ocio_src: Optional[str] = None
     ocio_dst: Optional[str] = None
+    ocio_display: Optional[str] = None
+    ocio_view: Optional[str] = None
     burn_in: Optional[list[str]] = None
+    comfy: bool = False
+    comfy_max_width: int = 1024
+    shot: Optional[str] = None
+    shot_version: Optional[int] = None
     status: str = "pending"
     error: Optional[str] = None
     manifest_path: Optional[str] = None

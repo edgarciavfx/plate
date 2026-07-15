@@ -15,10 +15,10 @@ class NukeWriter:
         fr = session.frame_range
         metadata = session.metadata
 
-        shot_name = session.shot_name
+        shot_name = session.frame_base_name
         padding = self.frame_padding
         pattern = f"{shot_name}.%0{padding}d.exr"
-        exr_dir = session.exr_dir or session.output_dir / "exr"
+        exr_dir = session.exr_dir or session.plates_dir
         file_path = (exr_dir / pattern).as_posix()
 
         first = fr.in_frame
@@ -56,6 +56,12 @@ class NukeWriter:
         if ct is not None and ct.is_active():
             lines.append(f"# Color transform: {ct.to_dict()}")
 
+        if session.comfy_dir is not None:
+            lines.append(
+                f"# ComfyUI PNGs: {(session.comfy_dir / (session.comfy_pattern or '')).as_posix()}"
+                f" (max width {session.comfy_max_width})"
+            )
+
         lines.append(f"# Source: {session.source_path}")
         lines.append(f"# Resolution: {width}x{height} @ {fps:.3f} fps")
         lines.append(f"# Frame range: {first}-{last} ({fr.frame_count} frames)")
@@ -63,6 +69,7 @@ class NukeWriter:
         return "\n".join(lines) + "\n"
 
     def write(self) -> Path:
-        nk_path = self.session.output_dir / f"{self.session.shot_name}.nk"
+        nk_path = self.session.nuke_script_path
+        nk_path.parent.mkdir(parents=True, exist_ok=True)
         nk_path.write_text(self.build())
         return nk_path
